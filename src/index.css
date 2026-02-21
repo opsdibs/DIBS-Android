@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 1. Custom Branding Font */
+@font-face {
+  font-family: 'Chunko';
+  /* Ensure this file exists in your /public folder, or remove this block if not used */
+  src: url('/Chunko-Bold-Demo-BF67b2ec86adebe.otf') format('opentype');
+  font-weight: bold;
+  font-style: normal;
+}
+
+/* 2. Global Page Reset */
+body {
+  background-color: #1a0a00; /* Dark background for desktop "dead space" */
+  color: white;
+  margin: 0;
+  font-family: 'Inter', sans-serif; /* Default font */
+  overflow: hidden; /* Prevent scrolling the body, handle it inside the app */
+}
+
+/* 3. Mobile Simulator Container */
+/* This forces the app to look like a phone on your laptop screen */
+#root {
+  max-width: 430px; /* Standard large phone width */
+  margin: 0 auto;   /* Center it */
+  height: 100vh;
+  background-color: #000000; /* Main Orange Theme */
+  position: relative;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.8); /* Nice shadow to separate from background */
+  overflow: hidden;
+}
+
+/* 4. UI Utilities */
+
+/* Hide scrollbars for clean app feel */
+::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
+
+/* Chat fade effect */
+.mask-chat {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 20%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 20%);
+}
+
+.font-retro {
+  font-family: 'Chunko', sans-serif !important;
+}
