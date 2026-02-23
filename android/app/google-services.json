@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "750697393756",
+    "firebase_url": "https://dibs-mobile-live-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "dibs-mobile-live",
+    "storage_bucket": "dibs-mobile-live.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:750697393756:android:9a1debe27f70ba10554099",
+        "android_client_info": {
+          "package_name": "com.dibs.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCKvfeQ4NENsfKaqWcZsGcWj_mgJiug15E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:750697393756:android:0e1ba76995a2c840554099",
+        "android_client_info": {
+          "package_name": "com.example.dibs_mob"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCKvfeQ4NENsfKaqWcZsGcWj_mgJiug15E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
