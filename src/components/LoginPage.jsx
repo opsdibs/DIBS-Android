@@ -232,7 +232,19 @@ function resolveOtpErrorMessage(code, message = '') {
   }
 }
 
+function isOtpRateLimited(code = '', message = '') {
+  const text = `${code} ${message}`.toLowerCase();
+  return (
+    text.includes('too-many-requests') ||
+    text.includes('quota') ||
+    text.includes('blocked all requests') ||
+    text.includes('unusual activity')
+  );
+}
+
 const SESSION_KEY = 'dibs_auth_context';
+const TEST_PASS_OTP = import.meta.env.VITE_TEST_PASS_OTP || '123456';
+const ENABLE_TEST_PASS = (import.meta.env.VITE_ENABLE_TEST_PASS ?? 'true') === 'true';
 
 export const LoginPage = () => {
   const navigate = useNavigate();
@@ -331,7 +343,18 @@ export const LoginPage = () => {
         'phoneVerificationFailed',
         (event) => {
           const nativeCode = event?.code ? `native/${event.code}` : 'native/phone-verification-failed';
-          setError(resolveOtpErrorMessage(nativeCode, event?.message));
+          const nativeMessage = event?.message || '';
+
+          if (ENABLE_TEST_PASS && isOtpRateLimited(nativeCode, nativeMessage)) {
+            setOtpDigits(Array(6).fill(''));
+            setOtpCountdown(0);
+            setLoginStep('otp');
+            setTimeout(() => otpRefs.current[0]?.focus(), 0);
+            setError(`OTP temporarily blocked. Use Entry Pass: ${TEST_PASS_OTP}`);
+          } else {
+            setError(resolveOtpErrorMessage(nativeCode, nativeMessage));
+          }
+
           setLoading(false);
         }
       );
@@ -502,7 +525,19 @@ export const LoginPage = () => {
       setTimeout(() => otpRefs.current[0]?.focus(), 0);
     } catch (err) {
       console.error('OTP send failed:', err);
-      setError(resolveOtpErrorMessage(err?.code || 'native/send-failed', err?.message));
+      const errCode = err?.code || 'native/send-failed';
+      const errMessage = err?.message || '';
+
+      if (ENABLE_TEST_PASS && isOtpRateLimited(errCode, errMessage)) {
+        setOtpDigits(Array(6).fill(''));
+        setOtpCountdown(0);
+        setLoginStep('otp');
+        setTimeout(() => otpRefs.current[0]?.focus(), 0);
+        setError(`OTP temporarily blocked. Use Entry Pass: ${TEST_PASS_OTP}`);
+      } else {
+        setError(resolveOtpErrorMessage(errCode, errMessage));
+      }
+
       if (!isNativePhoneOtp) resetRecaptcha();
     } finally {
       setLoading(false);
@@ -660,6 +695,19 @@ export const LoginPage = () => {
 
     setError('');
     setLoading(true);
+
+    const cleanPhone = sanitizePhone(phoneInput);
+    if (ENABLE_TEST_PASS && entered === TEST_PASS_OTP) {
+      if (cleanPhone.length < 10) {
+        setError('Enter a valid 10-digit phone number.');
+        setLoading(false);
+        return;
+      }
+
+      logEvent(roomId, 'OTP_BYPASS_USED', { phone: cleanPhone });
+      await handlePostOtpAuth({ uid: null, phoneNumber: toE164India(cleanPhone) });
+      return;
+    }
 
     try {
       if (isNativePhoneOtp) {
@@ -935,6 +983,9 @@ export const LoginPage = () => {
 
                   <h2 className="text-3xl font-semibold mb-3">Enter the OTP</h2>
                   <p className="text-xs text-white/80 mb-4">+91 {formatPhonePretty(phoneInput)}</p>
+                  {ENABLE_TEST_PASS && (
+                    <p className="text-[11px] text-orange-200 mb-3">Entry Pass (temporary): {TEST_PASS_OTP}</p>
+                  )}
 
                   <div className="flex gap-2 mb-4" onPaste={handleOtpPaste}>
                     {otpDigits.map((digit, idx) => (

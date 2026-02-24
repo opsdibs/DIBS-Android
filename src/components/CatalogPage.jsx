@@ -4,6 +4,7 @@ import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { ref, get, onValue, push, set, update } from 'firebase/database';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
+import { ShoppingCart, Search, Home, ChartLine, Settings } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 
 const SESSION_KEY = 'dibs_auth_context';
@@ -405,13 +406,21 @@ export const CatalogPage = () => {
         </div>
 
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm px-5">
-          <div className="h-12 rounded-sm bg-zinc-400/90 flex items-center justify-around">
-            <button className="h-8 w-8 rounded bg-zinc-200" aria-label="nav-home" />
-            <button className="h-8 w-8 rounded bg-zinc-200" aria-label="nav-your" />
-            <button className="h-8 w-8 rounded bg-zinc-200" aria-label="nav-live" />
-            <button className="h-8 w-8 rounded bg-zinc-200" aria-label="nav-settings" />
-            <button onClick={handleLogout} className="h-8 w-8 rounded bg-zinc-200 text-[9px] text-black font-bold" aria-label="logout">
-              OUT
+          <div className="h-14 rounded-xl bg-zinc-950/95 border border-zinc-800 flex items-center justify-between px-3 shadow-2xl">
+            <button type="button" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-800 flex items-center justify-center" aria-label="nav-cart">
+              <ShoppingCart className="w-5 h-5 text-white" />
+            </button>
+            <button type="button" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-800 flex items-center justify-center" aria-label="nav-search">
+              <Search className="w-5 h-5 text-white" />
+            </button>
+            <button type="button" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-700 flex items-center justify-center" aria-label="nav-home">
+              <Home className="w-5 h-5 text-white" />
+            </button>
+            <button type="button" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-800 flex items-center justify-center" aria-label="nav-insights">
+              <ChartLine className="w-5 h-5 text-white" />
+            </button>
+            <button type="button" onClick={handleLogout} title="Logout" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-800 flex items-center justify-center" aria-label="nav-settings">
+              <Settings className="w-5 h-5 text-white" />
             </button>
           </div>
         </div>
