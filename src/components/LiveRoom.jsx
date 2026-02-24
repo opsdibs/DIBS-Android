@@ -24,7 +24,7 @@ export const LiveRoom = ({ roomId }) => {
 
   useEffect(() => {
     const verifyUserSession = async () => {
-        if (!dbKey) { navigate('/'); return; }
+        if (!dbKey) { navigate('/catalog'); return; }
         try {
             const snapshot = await get(ref(db, `audience_data/${roomId}/${dbKey}`));
             if (snapshot.exists()) {
@@ -32,11 +32,11 @@ export const LiveRoom = ({ roomId }) => {
                 setVerifiedRole(data.role);
                 setCurrentUsername(data.username); // <--- NEW: Capture username
             } else {
-                navigate('/'); 
+                navigate('/catalog'); 
             }
         } catch (error) {
             console.error("Verification failed:", error);
-            navigate('/');
+            navigate('/catalog');
         } finally {
             setIsVerifying(false);
         }
@@ -118,9 +118,9 @@ useEffect(() => {
       try { await update(ref(db, `rooms/${roomId}`), { isLive: false }); } catch {}
 
       // CHANGE HERE: send host to home
-      navigate('/');
+      navigate('/catalog');
     } catch {
-      navigate('/'); // CHANGE HERE: fallback
+      navigate('/catalog'); // CHANGE HERE: fallback
     }
   });
 }, [isHost, roomId, navigate]);
@@ -476,7 +476,7 @@ const switchCamera = async () => {
                         </button>
                      </>
                  )}
-                 <button onClick={() => navigate('/')} className="bg-black/50 p-2 rounded-full hover:bg-white hover:text-black transition-colors">
+                 <button onClick={() => navigate('/catalog')} className="bg-black/50 p-2 rounded-full hover:bg-white hover:text-black transition-colors">
                     <X className="w-4 h-4" />
                 </button>
             </div>

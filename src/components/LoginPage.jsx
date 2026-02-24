@@ -232,6 +232,8 @@ function resolveOtpErrorMessage(code, message = '') {
   }
 }
 
+const SESSION_KEY = 'dibs_auth_context';
+
 export const LoginPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -259,6 +261,19 @@ export const LoginPage = () => {
   const nativeVerificationIdRef = useRef('');
   const autoSignInHandledRef = useRef(false);
   const isNativePhoneOtp = Capacitor.isNativePlatform();
+
+  const persistSession = (sessionPayload) => {
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(sessionPayload));
+    } catch (err) {
+      console.error('Failed to persist auth session', err);
+    }
+  };
+
+  const navigateToCatalog = (sessionPayload) => {
+    persistSession(sessionPayload);
+    navigate('/catalog', { replace: true });
+  };
 
   useEffect(() => {
     if (searchParams.get('room')) return;
@@ -546,10 +561,9 @@ export const LoginPage = () => {
     }
 
     try {
-      const [blockSnap, testSnapshot, configSnap, guestSnap] = await Promise.all([
+      const [blockSnap, testSnapshot, guestSnap] = await Promise.all([
         get(ref(db, `blocked_users/${cleanPhone}`)),
         get(ref(db, `test_allowed_guests/${cleanPhone}`)),
-        get(ref(db, 'event_config')),
         get(ref(db, `allowed_guests/${cleanPhone}`))
       ]);
 
@@ -560,37 +574,11 @@ export const LoginPage = () => {
         return;
       }
 
-      if (configSnap.exists()) {
-        const config = configSnap.val() || {};
-        const now = Date.now();
-        const start = config.startTime ? new Date(config.startTime).getTime() : NaN;
-        const end = config.endTime ? new Date(config.endTime).getTime() : NaN;
-
-        if (config.isMaintenanceMode) {
-          setWaitingMessage('SYSTEM UNDER MAINTENANCE.');
-          setCurrentScreen('waiting');
-          setLoading(false);
-          return;
-        }
-        if (!Number.isNaN(start) && now < start) {
-          setWaitingMessage('WAIT FOR THE NEXT DROP.');
-          setNextEventTime(config.startTime);
-          setCurrentScreen('waiting');
-          setLoading(false);
-          return;
-        }
-        if (!Number.isNaN(end) && now > end) {
-          setWaitingMessage('THIS EVENT HAS ENDED.');
-          setCurrentScreen('waiting');
-          setLoading(false);
-          return;
-        }
-      }
-
       let role = 'audience';
       let userId = firebaseUid || `USER-${cleanPhone}`;
       let email = `${cleanPhone}@otp.local`;
       let unregistered = false;
+      let resolvedDisplayName = '';
 
       if (testSnapshot.exists()) {
         const testRecord = testSnapshot.val() || {};
@@ -609,6 +597,8 @@ export const LoginPage = () => {
         const userProfileSnap = await get(userProfileRef);
         const existingUser = userProfileSnap.exists() ? userProfileSnap.val() : {};
 
+        resolvedDisplayName = String(existingUser?.displayName || existingUser?.username || '').trim();
+
         await update(userProfileRef, {
           uid: firebaseUid,
           phone: cleanPhone,
@@ -618,7 +608,7 @@ export const LoginPage = () => {
           authProvider: 'phone',
           createdAt: existingUser?.createdAt || Date.now(),
           lastLoginAt: Date.now(),
-          lastRoomId: roomId
+          lastRoomId: existingUser?.lastRoomId || roomId
         });
 
         await set(ref(db, `users_by_phone/${phoneE164}`), {
@@ -628,23 +618,29 @@ export const LoginPage = () => {
         });
       }
 
-      const indexSnap = await get(ref(db, `rooms/${roomId}/audience_index/${userId}`));
-      if (indexSnap.exists() && indexSnap.val()?.username) {
-        await joinRoom(role, userId, cleanPhone, email, indexSnap.val().username);
+      if (!resolvedDisplayName) {
+        const indexSnap = await get(ref(db, `rooms/${roomId}/audience_index/${userId}`));
+        if (indexSnap.exists() && indexSnap.val()?.username) {
+          resolvedDisplayName = String(indexSnap.val().username).trim();
+        }
+      }
+
+      if (resolvedDisplayName) {
+        navigateToCatalog({
+          role,
+          userId,
+          phone: cleanPhone,
+          phoneE164,
+          email,
+          unregistered,
+          displayName: resolvedDisplayName,
+          firebaseUid
+        });
         setLoading(false);
         return;
       }
 
-      if (firebaseUid) {
-        const displayNameSnap = await get(ref(db, `users/${firebaseUid}/displayName`));
-        if (displayNameSnap.exists() && displayNameSnap.val()) {
-          await joinRoom(role, userId, cleanPhone, email, String(displayNameSnap.val()));
-          setLoading(false);
-          return;
-        }
-      }
-
-      setPendingJoin({ role, userId, phone: cleanPhone, phoneE164, email, unregistered });
+      setPendingJoin({ role, userId, phone: cleanPhone, phoneE164, email, unregistered, firebaseUid });
       setDisplayName('');
       setLoginStep('name');
       setLoading(false);
@@ -739,22 +735,16 @@ export const LoginPage = () => {
         });
       }
 
-      if (pendingJoin.unregistered) {
-        await set(ref(db, `rooms/${roomId}/unregistered/${pendingJoin.phone}`), {
-          phone: pendingJoin.phone,
-          email: pendingJoin.email,
-          timestamp: Date.now(),
-          source: 'otp'
-        });
-      }
-
-      await joinRoom(
-        pendingJoin.role,
-        pendingJoin.userId,
-        pendingJoin.phone,
-        pendingJoin.email,
-        finalName
-      );
+      navigateToCatalog({
+        role: pendingJoin.role,
+        userId: pendingJoin.userId,
+        phone: pendingJoin.phone,
+        phoneE164: pendingJoin.phoneE164 || toE164India(pendingJoin.phone),
+        email: pendingJoin.email,
+        unregistered: pendingJoin.unregistered,
+        displayName: finalName,
+        firebaseUid: pendingJoin.firebaseUid || (isFirebaseUid ? pendingJoin.userId : null)
+      });
     } catch (err) {
       console.error(err);
       setError('Failed to continue. Please retry.');
