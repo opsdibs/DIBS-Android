@@ -1,5 +1,11 @@
 {
   "appId": "com.dibs.app",
   "appName": "DIBS",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": false,
+      "providers": ["phone"]
+    }
+  }
 }

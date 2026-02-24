@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowRight, ChevronLeft, Lock, Mail } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { ref, push, set, get, update } from 'firebase/database';
 import { onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
@@ -211,7 +213,7 @@ function toE164India(value) {
   return digits ? `+91${digits}` : '';
 }
 
-function resolveOtpErrorMessage(code) {
+function resolveOtpErrorMessage(code, message = '') {
   switch (code) {
     case 'auth/invalid-phone-number':
       return 'Invalid phone number. Check and retry.';
@@ -223,8 +225,10 @@ function resolveOtpErrorMessage(code) {
       return 'Too many requests. Try again later.';
     case 'auth/quota-exceeded':
       return 'OTP quota exceeded. Try again later.';
+    case 'auth/invalid-app-credential':
+      return 'App credential invalid. Reinstall latest APK and retry.';
     default:
-      return 'OTP action failed. Please retry.';
+      return `OTP failed (${code || 'unknown'}). ${message || 'Please retry.'}`;
   }
 }
 
@@ -252,7 +256,9 @@ export const LoginPage = () => {
   const confirmationResultRef = useRef(null);
   const recaptchaVerifierRef = useRef(null);
   const otpSessionPhoneRef = useRef('');
+  const nativeVerificationIdRef = useRef('');
   const autoSignInHandledRef = useRef(false);
+  const isNativePhoneOtp = Capacitor.isNativePlatform();
 
   useEffect(() => {
     if (searchParams.get('room')) return;
@@ -292,6 +298,37 @@ export const LoginPage = () => {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!isNativePhoneOtp) return undefined;
+
+    let phoneCodeSentHandle;
+    let phoneVerificationFailedHandle;
+
+    const setupListeners = async () => {
+      phoneCodeSentHandle = await FirebaseAuthentication.addListener('phoneCodeSent', (event) => {
+        if (event?.verificationId) {
+          nativeVerificationIdRef.current = event.verificationId;
+        }
+      });
+
+      phoneVerificationFailedHandle = await FirebaseAuthentication.addListener(
+        'phoneVerificationFailed',
+        (event) => {
+          const nativeCode = event?.code ? `native/${event.code}` : 'native/phone-verification-failed';
+          setError(resolveOtpErrorMessage(nativeCode, event?.message));
+          setLoading(false);
+        }
+      );
+    };
+
+    setupListeners();
+
+    return () => {
+      phoneCodeSentHandle?.remove();
+      phoneVerificationFailedHandle?.remove();
+    };
+  }, [isNativePhoneOtp]);
 
   useEffect(() => {
     if (currentScreen !== 'login') return;
@@ -377,6 +414,7 @@ export const LoginPage = () => {
     setLoginStep('landing');
     confirmationResultRef.current = null;
     otpSessionPhoneRef.current = '';
+    nativeVerificationIdRef.current = '';
     resetRecaptcha();
   };
 
@@ -418,20 +456,39 @@ export const LoginPage = () => {
     setLoading(true);
 
     try {
+      otpSessionPhoneRef.current = cleanPhone;
+      logEvent(roomId, 'OTP_SENT', { phone: cleanPhone });
+
+      if (isNativePhoneOtp) {
+        nativeVerificationIdRef.current = '';
+        const nativeResult = await FirebaseAuthentication.signInWithPhoneNumber({
+          phoneNumber: toE164India(cleanPhone),
+          timeout: 60
+        });
+
+        if (nativeResult?.verificationId) {
+          nativeVerificationIdRef.current = nativeResult.verificationId;
+        }
+
+        setOtpDigits(Array(6).fill(''));
+        setOtpCountdown(30);
+        setLoginStep('otp');
+        setTimeout(() => otpRefs.current[0]?.focus(), 0);
+        return;
+      }
+
       const verifier = await ensureRecaptcha();
       const confirmation = await signInWithPhoneNumber(auth, toE164India(cleanPhone), verifier);
 
       confirmationResultRef.current = confirmation;
-      otpSessionPhoneRef.current = cleanPhone;
       setOtpDigits(Array(6).fill(''));
       setOtpCountdown(30);
       setLoginStep('otp');
-      logEvent(roomId, 'OTP_SENT', { phone: cleanPhone });
       setTimeout(() => otpRefs.current[0]?.focus(), 0);
     } catch (err) {
       console.error('OTP send failed:', err);
-      setError(resolveOtpErrorMessage(err?.code));
-      resetRecaptcha();
+      setError(resolveOtpErrorMessage(err?.code || 'native/send-failed', err?.message));
+      if (!isNativePhoneOtp) resetRecaptcha();
     } finally {
       setLoading(false);
     }
@@ -605,15 +662,39 @@ export const LoginPage = () => {
       return;
     }
 
-    if (!confirmationResultRef.current) {
-      setError('OTP session expired. Please request a new OTP.');
-      return;
-    }
-
     setError('');
     setLoading(true);
 
     try {
+      if (isNativePhoneOtp) {
+        if (!nativeVerificationIdRef.current) {
+          setError('OTP session not ready. Tap Send Again?');
+          setLoading(false);
+          return;
+        }
+
+        const result = await FirebaseAuthentication.confirmVerificationCode({
+          verificationId: nativeVerificationIdRef.current,
+          verificationCode: entered
+        });
+
+        const verifiedPhone = sanitizePhone(
+          result.user?.phoneNumber || otpSessionPhoneRef.current || phoneInput
+        );
+
+        if (verifiedPhone) setPhoneInput(verifiedPhone);
+        nativeVerificationIdRef.current = '';
+        logEvent(roomId, 'OTP_VERIFIED', { phone: verifiedPhone, uid: result.user?.uid });
+        await handlePostOtpAuth(result.user);
+        return;
+      }
+
+      if (!confirmationResultRef.current) {
+        setError('OTP session expired. Please request a new OTP.');
+        setLoading(false);
+        return;
+      }
+
       const credential = await confirmationResultRef.current.confirm(entered);
       const verifiedPhone = sanitizePhone(
         credential.user?.phoneNumber || otpSessionPhoneRef.current || phoneInput
@@ -625,7 +706,7 @@ export const LoginPage = () => {
       await handlePostOtpAuth(credential.user);
     } catch (err) {
       console.error('OTP verify failed:', err);
-      setError(resolveOtpErrorMessage(err?.code));
+      setError(resolveOtpErrorMessage(err?.code || 'native/verify-failed', err?.message));
       setLoading(false);
     }
   };
