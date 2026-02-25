@@ -4,7 +4,7 @@ import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { ref, get, onValue, push, set, update } from 'firebase/database';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
-import { ShoppingCart, Search, Home, ChartLine, Settings } from 'lucide-react';
+import { ShoppingCart, Search, Home, ChartLine, Settings, Bell } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 
 const SESSION_KEY = 'dibs_auth_context';
@@ -328,9 +328,9 @@ export const CatalogPage = () => {
       disabled={!!joiningRoom}
       className="w-28 shrink-0 text-left"
     >
-      <div className="h-36 rounded-md bg-zinc-500/80 border border-zinc-400/30" />
-      <p className="text-[10px] mt-2 text-zinc-200 truncate">{room.id}</p>
-      <p className="text-[10px] text-orange-300">{joiningRoom === room.id ? 'Entering...' : room.isLive ? 'LIVE' : 'Tap to Enter'}</p>
+      <div className="h-36 rounded-xl bg-[#60626a]" />
+      <p className="text-[12px] mt-2 text-zinc-200 truncate">{room.id}</p>
+      <p className="text-[12px] text-orange-300">{joiningRoom === room.id ? 'Entering...' : 'Tap to Enter'}</p>
     </button>
   );
 
@@ -338,90 +338,89 @@ export const CatalogPage = () => {
     <button
       onClick={() => handleJoinRoom(room.id)}
       disabled={!!joiningRoom}
-      className="w-full rounded-md bg-zinc-500/80 border border-zinc-400/30 h-36 text-left p-2"
+      className="w-full text-left"
     >
-      <p className="text-xs font-semibold text-white truncate">{room.id}</p>
-      <p className="text-[11px] text-white/75 mt-1">Audience: {room.audienceCount}</p>
-      <p className="text-[11px] text-orange-200 mt-8">{joiningRoom === room.id ? 'Entering...' : 'Tap to Enter Room'}</p>
+      <div className="h-56 rounded-xl bg-[#60626a]" />
+      <p className="text-[12px] mt-2 text-zinc-200 truncate">{room.id}</p>
+      <p className="text-[12px] text-orange-300">{joiningRoom === room.id ? 'Entering...' : 'Tap to Enter'}</p>
     </button>
   );
 
   if (!authReady) {
     return (
-      <div className="min-h-screen bg-[#1f2124] text-white flex items-center justify-center">
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="text-sm text-zinc-300">Checking session...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#1f2124] text-white flex justify-center py-4 px-3">
-      <div className="w-full max-w-sm bg-black rounded-none md:rounded-lg overflow-hidden border border-white/10">
-        <div className="px-5 pt-4 pb-24">
-          <p className="text-xs tracking-wide text-zinc-500 uppercase">Market Place UI</p>
-
-          <div className="mt-3 flex items-center gap-2">
-            <div className="h-8 flex-1 rounded-md bg-zinc-700 px-3 flex items-center text-sm text-zinc-100 truncate">
-              Hello {profile?.displayName || 'User'}
+    <div className="min-h-screen bg-black text-white">
+      <div className="mx-auto w-full max-w-md min-h-screen relative pb-28">
+        <div className="px-6 pt-6">
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-4xl font-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
+            <div className="flex items-center gap-4">
+              <Bell className="w-5 h-5 text-white" />
+              <div className="h-10 w-10 rounded-full bg-[#d56969]" />
             </div>
-            <button className="h-8 w-8 rounded-full bg-zinc-600" aria-label="profile" />
           </div>
 
           {error && (
-            <div className="mt-3 rounded-md border border-red-500/40 bg-red-950/30 px-2 py-2 text-[11px]">{error}</div>
+            <div className="mb-3 rounded-md border border-red-500/40 bg-red-950/30 px-2 py-2 text-[11px]">{error}</div>
           )}
 
-          {loadingRooms && (
-            <div className="mt-4 text-xs text-zinc-400">Loading shows...</div>
-          )}
+          {loadingRooms && <div className="text-xs text-zinc-400 mb-4">Loading shows...</div>}
 
-          <section className="mt-4">
-            <h2 className="text-orange-500 text-xl font-semibold">Your Shows</h2>
-            <div className="mt-2 flex gap-2 overflow-x-auto pb-2">
+          <section className="mb-6">
+            <h2 className="text-[#ff7a00] text-[40px] font-bold leading-none mb-3">Your Shows</h2>
+            <div className="flex gap-2 overflow-x-auto pb-2">
               {yourShows.length > 0 ? yourShows.map((room) => <RailCard key={`your-${room.id}`} room={room} />) : (
-                <div className="text-[11px] text-zinc-400">No rooms joined yet.</div>
+                <div className="text-[12px] text-zinc-400">No rooms joined yet.</div>
               )}
             </div>
           </section>
 
-          <section className="mt-4">
-            <h2 className="text-orange-500 text-xl font-semibold">Upcoming Shows</h2>
-            <div className="mt-2 flex gap-2 overflow-x-auto pb-2">
+          <section className="mb-6">
+            <h2 className="text-[#ff7a00] text-[40px] font-bold leading-none mb-3">Upcoming Shows</h2>
+            <div className="flex gap-2 overflow-x-auto pb-2">
               {upcomingShows.length > 0 ? upcomingShows.map((room) => <RailCard key={`upcoming-${room.id}`} room={room} />) : (
-                <div className="text-[11px] text-zinc-400">No upcoming rooms.</div>
+                <div className="text-[12px] text-zinc-400">No upcoming rooms.</div>
               )}
             </div>
           </section>
 
-          <section className="mt-4">
-            <h2 className="text-orange-500 text-xl font-semibold">Current Shows</h2>
-            <div className="mt-2 grid grid-cols-2 gap-3">
+          <section>
+            <h2 className="text-[#ff7a00] text-[40px] font-bold leading-none mb-3">Current Shows</h2>
+            <div className="grid grid-cols-2 gap-3 pb-4">
               {currentShows.length > 0 ? currentShows.map((room) => (
                 <CurrentCard key={`current-${room.id}`} room={room} />
               )) : (
-                <p className="text-[11px] text-zinc-400 col-span-2">No current live shows.</p>
+                <p className="text-[12px] text-zinc-400 col-span-2">No current live shows.</p>
               )}
             </div>
           </section>
         </div>
 
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm px-5">
-          <div className="h-14 rounded-xl bg-zinc-950/95 border border-zinc-800 flex items-center justify-between px-3 shadow-2xl">
-            <button type="button" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-800 flex items-center justify-center" aria-label="nav-cart">
-              <ShoppingCart className="w-5 h-5 text-white" />
-            </button>
-            <button type="button" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-800 flex items-center justify-center" aria-label="nav-search">
-              <Search className="w-5 h-5 text-white" />
-            </button>
-            <button type="button" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-700 flex items-center justify-center" aria-label="nav-home">
-              <Home className="w-5 h-5 text-white" />
-            </button>
-            <button type="button" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-800 flex items-center justify-center" aria-label="nav-insights">
-              <ChartLine className="w-5 h-5 text-white" />
-            </button>
-            <button type="button" onClick={handleLogout} title="Logout" className="h-10 w-10 rounded-lg bg-black/70 border border-zinc-800 flex items-center justify-center" aria-label="nav-settings">
-              <Settings className="w-5 h-5 text-white" />
-            </button>
+        <div className="fixed bottom-0 left-0 right-0 bg-[#0f1012] border-t border-zinc-800/80">
+          <div className="mx-auto w-full max-w-md px-6 py-3">
+            <div className="grid grid-cols-5 gap-3">
+              <button type="button" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-cart">
+                <ShoppingCart className="w-5 h-5 text-white" />
+              </button>
+              <button type="button" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-search">
+                <Search className="w-5 h-5 text-white" />
+              </button>
+              <button type="button" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-home">
+                <Home className="w-5 h-5 text-white" />
+              </button>
+              <button type="button" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-insights">
+                <ChartLine className="w-5 h-5 text-white" />
+              </button>
+              <button type="button" onClick={handleLogout} title="Logout" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-settings">
+                <Settings className="w-5 h-5 text-white" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
