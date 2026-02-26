@@ -658,6 +658,13 @@ export const CatalogPage = () => {
     navigate('/login', { replace: true });
   };
 
+  const handleGoHome = () => {
+    setSelectedRoomForRsvp(null);
+    setSelectedLockedRoom(null);
+    setShowSettingsSheet(false);
+    navigate('/catalog', { replace: true });
+  };
+
   const updateSetting = (key, value) => {
     setAppSettings((prev) => ({
       ...prev,
@@ -768,7 +775,7 @@ export const CatalogPage = () => {
       <div className="mx-auto w-full max-w-md min-h-full relative pb-28">
         <div className="px-6 pt-6">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-1xl font-ppmori-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
+            <h1 className="text-3xl font-ppmori-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
             <div className="flex items-center gap-4">
               <Bell className={`w-5 h-5 ${isDarkMode ? 'text-white' : 'text-[#111]'}`} />
               <div className="h-10 w-10 rounded-full bg-[#d56969]" />
@@ -824,7 +831,7 @@ export const CatalogPage = () => {
               <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-search">
                 <Search className="w-5 h-5" />
               </button>
-              <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-home">
+              <button type="button" onClick={handleGoHome} className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-home">
                 <Home className="w-5 h-5" />
               </button>
               <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-insights">
