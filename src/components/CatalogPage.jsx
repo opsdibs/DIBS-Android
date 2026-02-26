@@ -6,7 +6,7 @@ import { ref, get, onValue, push, set, update, runTransaction } from 'firebase/d
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
-import { ShoppingCart, Search, Home, ChartLine, Settings, Bell, Moon, Sun } from 'lucide-react';
+import { ShoppingCart, Search, Home, ChartLine, Settings, Bell, Moon, Sun, ChevronDown, ChevronLeft } from 'lucide-react';
 import { auth, db, storage } from '../lib/firebase';
 import { WaitingScreen } from './WaitingScreen';
 
@@ -811,9 +811,11 @@ export const CatalogPage = () => {
         <button
           type="button"
           onClick={() => setSelectedLockedRoom(null)}
-          className="absolute top-5 left-4 z-30 text-xs underline text-white/90"
+          className="absolute top-5 left-4 z-30 h-8 w-8 rounded-full border border-white/35 bg-black/15 backdrop-blur-sm flex items-center justify-center text-white/90"
+          aria-label="Go back"
+          title="Go back"
         >
-          Go Back
+          <ChevronLeft className="w-4 h-4" />
         </button>
         <WaitingScreen
           message={`${selectedLockedRoom.id} OPENS SOON`}
@@ -873,13 +875,33 @@ export const CatalogPage = () => {
             </div>
           </div>
 
-          {error && (
-            <div className="mb-3 rounded-md border border-red-500/40 bg-red-950/30 px-2 py-2 text-[11px]">{error}</div>
-          )}
+          <AnimatePresence mode="popLayout">
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+                className="mb-3 rounded-md border border-red-500/40 bg-red-950/30 px-2 py-2 text-[11px]"
+              >
+                {error}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {notice && (
-            <div className="mb-3 rounded-md border border-emerald-500/40 bg-emerald-950/30 px-2 py-2 text-[11px]">{notice}</div>
-          )}
+          <AnimatePresence mode="popLayout">
+            {notice && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+                className="mb-3 rounded-md border border-emerald-500/40 bg-emerald-950/30 px-2 py-2 text-[11px]"
+              >
+                {notice}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {loadingRooms && <div className="text-xs text-zinc-400 mb-4">Loading shows...</div>}
 
@@ -968,68 +990,121 @@ export const CatalogPage = () => {
                 <button
                   type="button"
                   onClick={() => setShowSettingsSheet(false)}
-                  className={`text-xs underline ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}
+                  className={`h-8 w-8 rounded-full border flex items-center justify-center ${isDarkMode ? 'text-zinc-300 border-zinc-700 bg-black/30' : 'text-[#3d3d3d] border-[#c8c1b5] bg-white/70'}`}
+                  aria-label="Close settings"
+                  title="Close settings"
                 >
-                  Close
+                  <ChevronDown className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className={`rounded-xl border p-3 mb-3 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}>
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.03 }}
+                className={`rounded-xl border p-3 mb-3 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}
+              >
                 <p className="text-sm font-ppmori-semibold mb-1">Account</p>
                 <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Name: {profile?.displayName || 'N/A'}</p>
                 <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Phone: {profile?.phone || 'N/A'}</p>
                 <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Email: {profile?.email || 'N/A'}</p>
                 <p className={`text-[11px] mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>Tip: tap the profile circle on top to change photo.</p>
-              </div>
+              </motion.div>
 
-              <div className={`rounded-xl border p-3 mb-3 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}>
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.06 }}
+                className={`rounded-xl border p-3 mb-3 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}
+              >
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-ppmori-semibold">Notifications</p>
                     <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>Enable app alerts and room reminders</p>
                   </div>
-                  <button
+                  <motion.button
                     type="button"
                     onClick={() => updateSetting('notificationsEnabled', !appSettings.notificationsEnabled)}
-                    className={`h-8 px-3 rounded-lg text-xs font-ppmori-semibold ${appSettings.notificationsEnabled ? 'bg-emerald-500 text-black' : (isDarkMode ? 'bg-zinc-700 text-white' : 'bg-[#d3cdc2] text-[#111]')}`}
+                    whileTap={{ scale: 0.96 }}
+                    className={`relative h-8 w-14 rounded-full border transition-colors ${appSettings.notificationsEnabled ? 'bg-emerald-500/90 border-emerald-300/80' : (isDarkMode ? 'bg-zinc-800 border-zinc-600' : 'bg-[#d8d1c6] border-[#b6aa98]')}`}
+                    aria-label="Toggle notifications"
+                    title="Toggle notifications"
                   >
-                    {appSettings.notificationsEnabled ? 'On' : 'Off'}
-                  </button>
+                    <motion.span
+                      className="absolute top-1 left-1 h-6 w-6 rounded-full bg-white text-black flex items-center justify-center text-[10px] font-semibold"
+                      animate={{ x: appSettings.notificationsEnabled ? 24 : 0 }}
+                      transition={{ type: 'spring', stiffness: 520, damping: 32 }}
+                    >
+                      {appSettings.notificationsEnabled ? 'On' : 'Off'}
+                    </motion.span>
+                  </motion.button>
                 </div>
-              </div>
+              </motion.div>
 
-              <div className={`rounded-xl border p-3 mb-5 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}>
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.09 }}
+                className={`rounded-xl border p-3 mb-5 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}
+              >
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-ppmori-semibold">Dark Mode</p>
                     <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>Switch between dark and light theme</p>
                   </div>
-                  <button
+                  <motion.button
                     type="button"
                     onClick={() => updateSetting('darkMode', !isDarkMode)}
-                    className={`h-8 px-3 rounded-lg text-xs font-ppmori-semibold flex items-center gap-1 ${isDarkMode ? 'bg-zinc-700 text-white' : 'bg-[#d3cdc2] text-[#111]'}`}
+                    whileTap={{ scale: 0.96 }}
+                    className={`relative h-8 w-14 rounded-full border transition-colors ${isDarkMode ? 'bg-[#2d3340] border-[#4e586c]' : 'bg-[#f3d28a] border-[#d8ad4e]'}`}
+                    aria-label="Toggle dark mode"
+                    title="Toggle dark mode"
                   >
-                    {isDarkMode ? <Moon className="w-3 h-3" /> : <Sun className="w-3 h-3" />}
-                    {isDarkMode ? 'Dark' : 'Light'}
-                  </button>
+                    <motion.span
+                      className={`absolute top-1 left-1 h-6 w-6 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-[#0f1012] text-white' : 'bg-white text-[#111]'}`}
+                      animate={{ x: isDarkMode ? 24 : 0 }}
+                      transition={{ type: 'spring', stiffness: 520, damping: 32 }}
+                    >
+                      {isDarkMode ? <Moon className="w-3 h-3" /> : <Sun className="w-3 h-3" />}
+                    </motion.span>
+                  </motion.button>
                 </div>
-              </div>
+              </motion.div>
 
-              <button
+              <motion.button
                 type="button"
                 onClick={handleLogout}
                 className="w-full h-11 rounded-lg bg-orange-500 text-black font-ppmori-semibold"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.12 }}
+                whileTap={{ scale: 0.98 }}
               >
                 Logout
-              </button>
+              </motion.button>
               </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {selectedRoomForRsvp && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-end">
-            <div className="w-full max-w-md mx-auto rounded-t-2xl border border-zinc-800 bg-[#111214] p-5">
+        <AnimatePresence>
+          {selectedRoomForRsvp && (
+            <motion.div
+              className="fixed inset-0 z-50 bg-black/70 flex items-end"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setSelectedRoomForRsvp(null)}
+            >
+              <motion.div
+                className="w-full max-w-md mx-auto rounded-t-2xl border border-zinc-800 bg-[#111214] p-5"
+                initial={{ y: 48, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 48, opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.75 }}
+                onClick={(e) => e.stopPropagation()}
+              >
               <h3 className="text-lg font-semibold text-white">Register for {selectedRoomForRsvp.id}</h3>
               <p className="text-xs text-zinc-300 mt-2">Starts: {formatDateTime(selectedRoomWindow.startTimeMs)}</p>
               <p className="text-xs text-zinc-300">Ends: {formatDateTime(selectedRoomWindow.endTimeMs)}</p>
@@ -1058,9 +1133,10 @@ export const CatalogPage = () => {
                   {registeringRoom ? 'Registering...' : 'Confirm RSVP'}
                 </button>
               </div>
-            </div>
-          </div>
-        )}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
