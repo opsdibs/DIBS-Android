@@ -856,7 +856,7 @@ export const CatalogPage = () => {
   const appIconFilter = isDarkMode ? 'brightness(0) invert(1)' : 'brightness(0)';
 
   return (
-    <div className={`h-screen overflow-y-auto font-ppmori ${pageThemeClass}`}>
+    <div className={`h-screen overflow-y-auto mobile-scroll-smooth font-ppmori ${pageThemeClass}`}>
       <div className="mx-auto w-full max-w-md min-h-full relative pb-28">
         <input
           ref={avatarInputRef}
@@ -953,7 +953,7 @@ export const CatalogPage = () => {
 
           <section className="mb-6">
             <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Your Shows</h2>
-            <div className="flex gap-2 overflow-x-auto pb-2">
+            <div className="flex gap-2 overflow-x-auto horizontal-rail-smooth pb-2">
               {filteredYourShows.length > 0 ? filteredYourShows.map((room) => <RailCard key={`your-${room.id}`} room={room} />) : (
                 <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>{normalizedSearch ? 'No matching rooms.' : 'No RSVP shows yet.'}</div>
               )}
@@ -962,7 +962,7 @@ export const CatalogPage = () => {
 
           <section className="mb-6">
             <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Upcoming Shows</h2>
-            <div className="flex gap-2 overflow-x-auto pb-2">
+            <div className="flex gap-2 overflow-x-auto horizontal-rail-smooth pb-2">
               {filteredUpcomingShows.length > 0 ? filteredUpcomingShows.map((room) => <RailCard key={`upcoming-${room.id}`} room={room} />) : (
                 <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>{normalizedSearch ? 'No matching rooms.' : 'No upcoming rooms.'}</div>
               )}

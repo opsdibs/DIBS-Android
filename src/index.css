@@ -85,3 +85,18 @@ body {
   font-family: 'PP Mori', 'Inter', sans-serif !important;
   font-weight: 600;
 }
+
+/* 5. Scroll feel tuning */
+.mobile-scroll-smooth {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  will-change: scroll-position;
+}
+
+.horizontal-rail-smooth {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
