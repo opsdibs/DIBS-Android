@@ -54,7 +54,7 @@ export const WaitingScreen = ({ message, nextEvent, onTimerFinished }) => {
       <Lock className="w-12 h-12 text-white/50" />
 
       <div className="space-y-6">
-        <h1 className="text-5xl font-display font-black text-white uppercase tracking-tight leading-none">
+        <h1 className="text-5xl font-retro font-black text-white uppercase tracking-[0.03em] leading-none">
           DOORS
           <br />
           LOCKED
