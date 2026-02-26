@@ -1,13 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
-import { ref, get, onValue, push, set, update } from 'firebase/database';
+import { ref, get, onValue, push, set, update, runTransaction } from 'firebase/database';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { ShoppingCart, Search, Home, ChartLine, Settings, Bell } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
+import { WaitingScreen } from './WaitingScreen';
 
 const SESSION_KEY = 'dibs_auth_context';
+
+const RSVP_STATUS = {
+  REGISTERED: 'registered',
+  WAITLISTED: 'waitlisted',
+  CANCELLED: 'cancelled'
+};
+
+const DEFAULT_RSVP_CONFIG = {
+  rsvpOpen: true,
+  capacity: 100,
+  bookedCount: 0,
+  waitlistCount: 0
+};
 
 function sanitizePhone(value = '') {
   return String(value).replace(/\D/g, '').slice(-10);
@@ -35,14 +49,82 @@ function normalizeProfile(base = {}) {
   };
 }
 
+function parseTimeToMs(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
+function getRoomWindow(room = {}) {
+  const cfg = room.eventConfig || {};
+  const startTimeMs = parseTimeToMs(cfg.startTimeMs ?? cfg.startTime);
+  const endTimeMs = parseTimeToMs(cfg.endTimeMs ?? cfg.endTime);
+  return { startTimeMs, endTimeMs };
+}
+
+function getRoomState(room, nowMs) {
+  const { startTimeMs, endTimeMs } = getRoomWindow(room);
+
+  if (startTimeMs && nowMs < startTimeMs) return 'upcoming';
+  if (endTimeMs && nowMs >= endTimeMs) return 'ended';
+  if (room.isLive) return 'current';
+  if (startTimeMs && nowMs >= startTimeMs && (!endTimeMs || nowMs < endTimeMs)) return 'current';
+
+  return 'upcoming';
+}
+
+function roomStateRank(state) {
+  if (state === 'current') return 0;
+  if (state === 'upcoming') return 1;
+  return 2;
+}
+
+function formatCountdown(msRemaining) {
+  const ms = Math.max(0, Number(msRemaining) || 0);
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function formatDateTime(ms) {
+  if (!ms) return 'Schedule TBD';
+  return new Date(ms).toLocaleString();
+}
+
+function isActiveRsvpStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === RSVP_STATUS.REGISTERED || normalized === RSVP_STATUS.WAITLISTED;
+}
+
 export const CatalogPage = () => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [rooms, setRooms] = useState([]);
+  const [userRsvps, setUserRsvps] = useState({});
   const [loadingRooms, setLoadingRooms] = useState(true);
   const [joiningRoom, setJoiningRoom] = useState('');
+  const [registeringRoom, setRegisteringRoom] = useState('');
+  const [selectedRoomForRsvp, setSelectedRoomForRsvp] = useState(null);
+  const [selectedLockedRoom, setSelectedLockedRoom] = useState(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -154,6 +236,29 @@ export const CatalogPage = () => {
     };
   }, [navigate]);
 
+  const profileUserId = profile?.userId || profile?.firebaseUid || '';
+  const rsvpOwnerId = profile?.firebaseUid || profile?.userId || (profile?.phone ? `USER-${profile.phone}` : '');
+
+  useEffect(() => {
+    if (!rsvpOwnerId) {
+      setUserRsvps({});
+      return undefined;
+    }
+
+    const rsvpsRef = ref(db, `users/${rsvpOwnerId}/rsvps`);
+    const unsubscribe = onValue(
+      rsvpsRef,
+      (snapshot) => {
+        setUserRsvps(snapshot.exists() ? snapshot.val() || {} : {});
+      },
+      (err) => {
+        console.error('Failed to load user RSVPs', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [rsvpOwnerId]);
+
   useEffect(() => {
     const roomsRef = ref(db, 'rooms');
     const unsubscribe = onValue(
@@ -168,7 +273,12 @@ export const CatalogPage = () => {
               id,
               isLive: !!room?.isLive,
               audienceCount: room?.audience_index ? Object.keys(room.audience_index).length : 0,
-              audienceIndex: room?.audience_index || {}
+              audienceIndex: room?.audience_index || {},
+              eventConfig: room?.event_config || {},
+              rsvpConfig: {
+                ...DEFAULT_RSVP_CONFIG,
+                ...(room?.rsvp_config || {})
+              }
             });
           });
         }
@@ -181,7 +291,9 @@ export const CatalogPage = () => {
                 id: String(activeSnap.val()),
                 isLive: false,
                 audienceCount: 0,
-                audienceIndex: {}
+                audienceIndex: {},
+                eventConfig: {},
+                rsvpConfig: { ...DEFAULT_RSVP_CONFIG }
               });
             }
           } catch (e) {
@@ -190,7 +302,13 @@ export const CatalogPage = () => {
         }
 
         entries.sort((a, b) => {
-          if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
+          const stateDiff = roomStateRank(getRoomState(a, Date.now())) - roomStateRank(getRoomState(b, Date.now()));
+          if (stateDiff !== 0) return stateDiff;
+
+          const aStart = getRoomWindow(a).startTimeMs || Number.MAX_SAFE_INTEGER;
+          const bStart = getRoomWindow(b).startTimeMs || Number.MAX_SAFE_INTEGER;
+          if (aStart !== bStart) return aStart - bStart;
+
           return a.id.localeCompare(b.id);
         });
 
@@ -207,36 +325,44 @@ export const CatalogPage = () => {
     return () => unsubscribe();
   }, []);
 
-  const profileUserId = profile?.userId || profile?.firebaseUid || '';
-
   const yourShows = useMemo(() => {
-    if (!profileUserId) return [];
+    if (!profileUserId && !rsvpOwnerId) return [];
 
-    const userRooms = rooms.filter((room) => !!room.audienceIndex?.[profileUserId]);
+    const userRooms = rooms.filter((room) => {
+      const joinedViaAudience = !!room.audienceIndex?.[profileUserId];
+      const joinedViaRsvp = isActiveRsvpStatus(userRsvps?.[room.id]?.status);
+      return joinedViaAudience || joinedViaRsvp;
+    });
 
-    if (profile?.lastRoomId) {
-      userRooms.sort((a, b) => {
+    userRooms.sort((a, b) => {
+      if (profile?.lastRoomId) {
         if (a.id === profile.lastRoomId) return -1;
         if (b.id === profile.lastRoomId) return 1;
-        if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
-        return a.id.localeCompare(b.id);
-      });
-      return userRooms;
-    }
+      }
+
+      const stateDiff = roomStateRank(getRoomState(a, nowMs)) - roomStateRank(getRoomState(b, nowMs));
+      if (stateDiff !== 0) return stateDiff;
+
+      const aStart = getRoomWindow(a).startTimeMs || Number.MAX_SAFE_INTEGER;
+      const bStart = getRoomWindow(b).startTimeMs || Number.MAX_SAFE_INTEGER;
+      if (aStart !== bStart) return aStart - bStart;
+
+      return a.id.localeCompare(b.id);
+    });
 
     return userRooms;
-  }, [rooms, profileUserId, profile?.lastRoomId]);
+  }, [rooms, profileUserId, profile?.lastRoomId, rsvpOwnerId, userRsvps, nowMs]);
 
   const yourSet = useMemo(() => new Set(yourShows.map((r) => r.id)), [yourShows]);
 
   const upcomingShows = useMemo(
-    () => rooms.filter((r) => !r.isLive && !yourSet.has(r.id)),
-    [rooms, yourSet]
+    () => rooms.filter((r) => getRoomState(r, nowMs) === 'upcoming' && !yourSet.has(r.id)),
+    [rooms, yourSet, nowMs]
   );
 
   const currentShows = useMemo(
-    () => rooms.filter((r) => r.isLive && !yourSet.has(r.id)),
-    [rooms, yourSet]
+    () => rooms.filter((r) => getRoomState(r, nowMs) === 'current' && !yourSet.has(r.id)),
+    [rooms, yourSet, nowMs]
   );
 
   const handleJoinRoom = async (roomId) => {
@@ -244,11 +370,13 @@ export const CatalogPage = () => {
 
     if (!profile.displayName) {
       setError('Display name missing. Please login again.');
+      setNotice('');
       navigate('/login', { replace: true });
       return;
     }
 
     setError('');
+    setNotice('');
     setJoiningRoom(roomId);
 
     try {
@@ -312,7 +440,184 @@ export const CatalogPage = () => {
     } catch (err) {
       console.error(err);
       setError('Failed to enter room. Please retry.');
+      setNotice('');
       setJoiningRoom('');
+    }
+  };
+
+  const handleRegisterForSelectedRoom = async () => {
+    const room = selectedRoomForRsvp;
+    if (!profile || !room) return;
+
+    if (!rsvpOwnerId) {
+      setError('Unable to resolve user session. Please login again.');
+      setNotice('');
+      return;
+    }
+
+    const stateNow = getRoomState(room, Date.now());
+    if (stateNow !== 'upcoming') {
+      setSelectedRoomForRsvp(null);
+      setError('Registration closed for this room.');
+      setNotice('');
+      return;
+    }
+
+    setError('');
+    setNotice('');
+    setRegisteringRoom(room.id);
+
+    try {
+      const roomId = room.id;
+      const existingRef = ref(db, `rooms/${roomId}/rsvps/${rsvpOwnerId}`);
+      const existingSnap = await get(existingRef);
+
+      if (existingSnap.exists()) {
+        const existing = existingSnap.val() || {};
+        if (isActiveRsvpStatus(existing.status)) {
+          setSelectedRoomForRsvp(null);
+          setNotice(`Already ${existing.status} for ${roomId}.`);
+          return;
+        }
+      }
+
+      const rsvpConfigRef = ref(db, `rooms/${roomId}/rsvp_config`);
+      let assignedStatus = '';
+
+      const txResult = await runTransaction(rsvpConfigRef, (current) => {
+        const cfg = {
+          ...DEFAULT_RSVP_CONFIG,
+          ...(current || {})
+        };
+
+        if (cfg.rsvpOpen === false) return;
+
+        const capacity = Number(cfg.capacity) || 0;
+        const bookedCount = Number(cfg.bookedCount) || 0;
+        const waitlistCount = Number(cfg.waitlistCount) || 0;
+
+        if (capacity > 0 && bookedCount >= capacity) {
+          assignedStatus = RSVP_STATUS.WAITLISTED;
+          cfg.waitlistCount = waitlistCount + 1;
+        } else {
+          assignedStatus = RSVP_STATUS.REGISTERED;
+          cfg.bookedCount = bookedCount + 1;
+        }
+
+        return cfg;
+      });
+
+      if (!txResult.committed || !assignedStatus) {
+        setError('RSVP is currently closed for this room.');
+        setNotice('');
+        return;
+      }
+
+      const now = Date.now();
+      const { startTimeMs, endTimeMs } = getRoomWindow(room);
+
+      const roomRsvpPayload = {
+        status: assignedStatus,
+        createdAt: now,
+        phone: profile.phone,
+        displayName: profile.displayName,
+        userId: rsvpOwnerId
+      };
+
+      const userRsvpPayload = {
+        status: assignedStatus,
+        roomId,
+        startTimeMs: startTimeMs || 0,
+        endTimeMs: endTimeMs || 0,
+        updatedAt: now
+      };
+
+      const updates = {
+        [`rooms/${roomId}/rsvps/${rsvpOwnerId}`]: roomRsvpPayload,
+        [`users/${rsvpOwnerId}/rsvps/${roomId}`]: userRsvpPayload
+      };
+
+      await update(ref(db), updates);
+
+      setUserRsvps((prev) => ({
+        ...prev,
+        [roomId]: userRsvpPayload
+      }));
+
+      setSelectedRoomForRsvp(null);
+
+      if (assignedStatus === RSVP_STATUS.REGISTERED) {
+        setNotice(`Registered for ${roomId}. It now appears in Your Shows.`);
+      } else {
+        setNotice(`Added to waitlist for ${roomId}.`);
+      }
+      setError('');
+    } catch (err) {
+      console.error(err);
+      setError('Failed to register. Please retry.');
+      setNotice('');
+    } finally {
+      setRegisteringRoom('');
+    }
+  };
+
+  const handleRoomAction = (room) => {
+    if (joiningRoom || registeringRoom) return;
+
+    setError('');
+    setNotice('');
+
+    const roomState = getRoomState(room, nowMs);
+    const isRegistered = isActiveRsvpStatus(userRsvps?.[room.id]?.status);
+
+    if (roomState === 'ended') {
+      setError('This show has ended.');
+      return;
+    }
+
+    if (roomState === 'upcoming') {
+      if (!isRegistered) {
+        setSelectedLockedRoom(null);
+        setSelectedRoomForRsvp(room);
+        return;
+      }
+
+      setSelectedRoomForRsvp(null);
+      setSelectedLockedRoom(room);
+      return;
+    }
+
+    setSelectedLockedRoom(null);
+    handleJoinRoom(room.id);
+  };
+
+  const handleLockedTimerFinished = async () => {
+    if (!selectedLockedRoom) return;
+
+    const roomId = selectedLockedRoom.id;
+    const roomRef = ref(db, `rooms/${roomId}`);
+
+    try {
+      const snap = await get(roomRef);
+      const latest = snap.exists() ? snap.val() : {};
+      const latestRoom = {
+        id: roomId,
+        isLive: !!latest?.isLive,
+        eventConfig: latest?.event_config || selectedLockedRoom.eventConfig || {}
+      };
+
+      const latestState = getRoomState(latestRoom, Date.now());
+      if (latestState === 'upcoming') {
+        setSelectedLockedRoom(null);
+        setError('Room is still locked. Please wait a little more.');
+        return;
+      }
+
+      setSelectedLockedRoom(null);
+      await handleJoinRoom(roomId);
+    } catch (err) {
+      console.error(err);
+      setError('Unable to open room right now. Please retry.');
     }
   };
 
@@ -322,29 +627,61 @@ export const CatalogPage = () => {
     navigate('/login', { replace: true });
   };
 
-  const RailCard = ({ room }) => (
-    <button
-      onClick={() => handleJoinRoom(room.id)}
-      disabled={!!joiningRoom}
-      className="w-28 shrink-0 text-left"
-    >
-      <div className="h-36 rounded-xl bg-[#60626a]" />
-      <p className="text-[12px] mt-2 text-zinc-200 truncate">{room.id}</p>
-      <p className="text-[12px] text-orange-300">{joiningRoom === room.id ? 'Entering...' : 'Tap to Enter'}</p>
-    </button>
-  );
+  const getActionLabel = (room) => {
+    if (joiningRoom === room.id) return 'Entering...';
 
-  const CurrentCard = ({ room }) => (
-    <button
-      onClick={() => handleJoinRoom(room.id)}
-      disabled={!!joiningRoom}
-      className="w-full text-left"
-    >
-      <div className="h-56 rounded-xl bg-[#60626a]" />
-      <p className="text-[12px] mt-2 text-zinc-200 truncate">{room.id}</p>
-      <p className="text-[12px] text-orange-300">{joiningRoom === room.id ? 'Entering...' : 'Tap to Enter'}</p>
-    </button>
-  );
+    const roomState = getRoomState(room, nowMs);
+    const rsvpStatus = String(userRsvps?.[room.id]?.status || '').toLowerCase();
+    const isRegistered = isActiveRsvpStatus(rsvpStatus);
+
+    if (roomState === 'ended') return 'Show Ended';
+
+    if (roomState === 'upcoming') {
+      if (!isRegistered) return 'Register Slot';
+      const { startTimeMs } = getRoomWindow(room);
+      return startTimeMs ? `Locked - ${formatCountdown(startTimeMs - nowMs)}` : 'Locked';
+    }
+
+    if (rsvpStatus === RSVP_STATUS.WAITLISTED) return 'Waitlisted';
+    if (room.isLive) return 'Tap to Enter';
+    return 'Tap to Enter';
+  };
+
+  const RailCard = ({ room }) => {
+    const roomState = getRoomState(room, nowMs);
+    const statusText = roomState === 'current' ? (room.isLive ? 'Live' : 'Open') : roomState === 'upcoming' ? 'Upcoming' : 'Ended';
+
+    return (
+      <button
+        onClick={() => handleRoomAction(room)}
+        disabled={!!joiningRoom || !!registeringRoom}
+        className="w-28 shrink-0 text-left"
+      >
+        <div className="h-36 rounded-xl bg-[#60626a]" />
+        <p className="text-[12px] mt-2 text-zinc-200 truncate">{room.id}</p>
+        <p className="text-[11px] text-zinc-400">{statusText}</p>
+        <p className="text-[12px] text-orange-300">{getActionLabel(room)}</p>
+      </button>
+    );
+  };
+
+  const CurrentCard = ({ room }) => {
+    const roomState = getRoomState(room, nowMs);
+    const statusText = room.isLive ? 'Live Now' : roomState === 'current' ? 'Open Now' : 'Upcoming';
+
+    return (
+      <button
+        onClick={() => handleRoomAction(room)}
+        disabled={!!joiningRoom || !!registeringRoom}
+        className="w-full text-left"
+      >
+        <div className="h-56 rounded-xl bg-[#60626a]" />
+        <p className="text-[12px] mt-2 text-zinc-200 truncate">{room.id}</p>
+        <p className="text-[11px] text-zinc-400">{statusText}</p>
+        <p className="text-[12px] text-orange-300">{getActionLabel(room)}</p>
+      </button>
+    );
+  };
 
   if (!authReady) {
     return (
@@ -354,9 +691,38 @@ export const CatalogPage = () => {
     );
   }
 
+  if (selectedLockedRoom) {
+    const { startTimeMs } = getRoomWindow(selectedLockedRoom);
+    const nextEventIso = startTimeMs ? new Date(startTimeMs).toISOString() : null;
+
+    return (
+      <div className="w-full h-screen bg-[#FF6600] text-white relative overflow-hidden font-sans">
+        <button
+          type="button"
+          onClick={() => setSelectedLockedRoom(null)}
+          className="absolute top-5 left-4 z-30 text-xs underline text-white/90"
+        >
+          Go Back
+        </button>
+        <WaitingScreen
+          message={`${selectedLockedRoom.id} OPENS SOON`}
+          nextEvent={nextEventIso}
+          onTimerFinished={handleLockedTimerFinished}
+        />
+      </div>
+    );
+  }
+
+  const selectedRoomWindow = getRoomWindow(selectedRoomForRsvp || {});
+  const selectedRsvpCfg = {
+    ...DEFAULT_RSVP_CONFIG,
+    ...(selectedRoomForRsvp?.rsvpConfig || {})
+  };
+  const seatsLeft = Math.max(0, Number(selectedRsvpCfg.capacity || 0) - Number(selectedRsvpCfg.bookedCount || 0));
+
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="mx-auto w-full max-w-md min-h-screen relative pb-28">
+    <div className="h-screen bg-black text-white overflow-y-auto">
+      <div className="mx-auto w-full max-w-md min-h-full relative pb-28">
         <div className="px-6 pt-6">
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-4xl font-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
@@ -370,13 +736,17 @@ export const CatalogPage = () => {
             <div className="mb-3 rounded-md border border-red-500/40 bg-red-950/30 px-2 py-2 text-[11px]">{error}</div>
           )}
 
+          {notice && (
+            <div className="mb-3 rounded-md border border-emerald-500/40 bg-emerald-950/30 px-2 py-2 text-[11px]">{notice}</div>
+          )}
+
           {loadingRooms && <div className="text-xs text-zinc-400 mb-4">Loading shows...</div>}
 
           <section className="mb-6">
             <h2 className="text-[#ff7a00] text-[40px] font-bold leading-none mb-3">Your Shows</h2>
             <div className="flex gap-2 overflow-x-auto pb-2">
               {yourShows.length > 0 ? yourShows.map((room) => <RailCard key={`your-${room.id}`} room={room} />) : (
-                <div className="text-[12px] text-zinc-400">No rooms joined yet.</div>
+                <div className="text-[12px] text-zinc-400">No RSVP shows yet.</div>
               )}
             </div>
           </section>
@@ -423,6 +793,41 @@ export const CatalogPage = () => {
             </div>
           </div>
         </div>
+
+        {selectedRoomForRsvp && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-end">
+            <div className="w-full max-w-md mx-auto rounded-t-2xl border border-zinc-800 bg-[#111214] p-5">
+              <h3 className="text-lg font-semibold text-white">Register for {selectedRoomForRsvp.id}</h3>
+              <p className="text-xs text-zinc-300 mt-2">Starts: {formatDateTime(selectedRoomWindow.startTimeMs)}</p>
+              <p className="text-xs text-zinc-300">Ends: {formatDateTime(selectedRoomWindow.endTimeMs)}</p>
+              <p className="text-xs text-zinc-400 mt-3">
+                Seats left: {seatsLeft} / {selectedRsvpCfg.capacity}
+              </p>
+              {!selectedRsvpCfg.rsvpOpen && (
+                <p className="text-xs text-red-300 mt-1">RSVP is closed for this room.</p>
+              )}
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  className="h-11 rounded-lg bg-zinc-800 text-white"
+                  onClick={() => setSelectedRoomForRsvp(null)}
+                  disabled={!!registeringRoom}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="h-11 rounded-lg bg-orange-500 text-black font-semibold disabled:opacity-50"
+                  onClick={handleRegisterForSelectedRoom}
+                  disabled={!!registeringRoom || selectedRsvpCfg.rsvpOpen === false}
+                >
+                  {registeringRoom ? 'Registering...' : 'Confirm RSVP'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
