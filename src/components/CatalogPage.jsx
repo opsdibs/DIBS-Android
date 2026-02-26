@@ -4,11 +4,12 @@ import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { ref, get, onValue, push, set, update, runTransaction } from 'firebase/database';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
-import { ShoppingCart, Search, Home, ChartLine, Settings, Bell } from 'lucide-react';
+import { ShoppingCart, Search, Home, ChartLine, Settings, Bell, Moon, Sun } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { WaitingScreen } from './WaitingScreen';
 
 const SESSION_KEY = 'dibs_auth_context';
+const APP_SETTINGS_KEY = 'dibs_app_settings';
 
 const RSVP_STATUS = {
   REGISTERED: 'registered',
@@ -21,6 +22,11 @@ const DEFAULT_RSVP_CONFIG = {
   capacity: 100,
   bookedCount: 0,
   waitlistCount: 0
+};
+
+const DEFAULT_APP_SETTINGS = {
+  notificationsEnabled: true,
+  darkMode: true
 };
 
 function sanitizePhone(value = '') {
@@ -117,6 +123,8 @@ export const CatalogPage = () => {
   const [registeringRoom, setRegisteringRoom] = useState('');
   const [selectedRoomForRsvp, setSelectedRoomForRsvp] = useState(null);
   const [selectedLockedRoom, setSelectedLockedRoom] = useState(null);
+  const [showSettingsSheet, setShowSettingsSheet] = useState(false);
+  const [appSettings, setAppSettings] = useState(DEFAULT_APP_SETTINGS);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [nowMs, setNowMs] = useState(Date.now());
@@ -125,6 +133,28 @@ export const CatalogPage = () => {
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(APP_SETTINGS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      setAppSettings((prev) => ({
+        ...prev,
+        ...parsed
+      }));
+    } catch (err) {
+      console.error('Failed to load app settings', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(appSettings));
+    } catch (err) {
+      console.error('Failed to persist app settings', err);
+    }
+  }, [appSettings]);
 
   useEffect(() => {
     let active = true;
@@ -624,7 +654,15 @@ export const CatalogPage = () => {
   const handleLogout = async () => {
     await signOut(auth).catch(() => {});
     localStorage.removeItem(SESSION_KEY);
+    setShowSettingsSheet(false);
     navigate('/login', { replace: true });
+  };
+
+  const updateSetting = (key, value) => {
+    setAppSettings((prev) => ({
+      ...prev,
+      [key]: value
+    }));
   };
 
   const getActionLabel = (room) => {
@@ -657,9 +695,9 @@ export const CatalogPage = () => {
         disabled={!!joiningRoom || !!registeringRoom}
         className="w-28 shrink-0 text-left"
       >
-        <div className="h-36 rounded-xl bg-[#60626a]" />
-        <p className="text-[12px] mt-2 text-zinc-200 truncate">{room.id}</p>
-        <p className="text-[11px] text-zinc-400">{statusText}</p>
+        <div className={`h-36 rounded-xl ${cardThemeClass}`} />
+        <p className={`text-[12px] mt-2 truncate ${isDarkMode ? 'text-zinc-200' : 'text-[#1f1f1f]'}`}>{room.id}</p>
+        <p className={`text-[11px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>{statusText}</p>
         <p className="text-[12px] text-orange-300">{getActionLabel(room)}</p>
       </button>
     );
@@ -675,9 +713,9 @@ export const CatalogPage = () => {
         disabled={!!joiningRoom || !!registeringRoom}
         className="w-full text-left"
       >
-        <div className="h-56 rounded-xl bg-[#60626a]" />
-        <p className="text-[12px] mt-2 text-zinc-200 truncate">{room.id}</p>
-        <p className="text-[11px] text-zinc-400">{statusText}</p>
+        <div className={`h-56 rounded-xl ${cardThemeClass}`} />
+        <p className={`text-[12px] mt-2 truncate ${isDarkMode ? 'text-zinc-200' : 'text-[#1f1f1f]'}`}>{room.id}</p>
+        <p className={`text-[11px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>{statusText}</p>
         <p className="text-[12px] text-orange-300">{getActionLabel(room)}</p>
       </button>
     );
@@ -719,15 +757,20 @@ export const CatalogPage = () => {
     ...(selectedRoomForRsvp?.rsvpConfig || {})
   };
   const seatsLeft = Math.max(0, Number(selectedRsvpCfg.capacity || 0) - Number(selectedRsvpCfg.bookedCount || 0));
+  const isDarkMode = appSettings.darkMode !== false;
+  const pageThemeClass = isDarkMode ? 'bg-black text-white' : 'bg-[#f2ece1] text-[#191919]';
+  const cardThemeClass = isDarkMode ? 'bg-[#60626a]' : 'bg-[#b8b9bf]';
+  const bottomBarThemeClass = isDarkMode ? 'bg-[#0f1012] border-zinc-800/80' : 'bg-[#ded9ce] border-[#c8c1b5]';
+  const navButtonThemeClass = isDarkMode ? 'bg-black text-white' : 'bg-[#f6f3ec] text-[#111] border border-[#c8c1b5]';
 
   return (
-    <div className="h-screen bg-black text-white overflow-y-auto font-ppmori">
+    <div className={`h-screen overflow-y-auto font-ppmori ${pageThemeClass}`}>
       <div className="mx-auto w-full max-w-md min-h-full relative pb-28">
         <div className="px-6 pt-6">
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-1xl font-ppmori-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
             <div className="flex items-center gap-4">
-              <Bell className="w-5 h-5 text-white" />
+              <Bell className={`w-5 h-5 ${isDarkMode ? 'text-white' : 'text-[#111]'}`} />
               <div className="h-10 w-10 rounded-full bg-[#d56969]" />
             </div>
           </div>
@@ -746,7 +789,7 @@ export const CatalogPage = () => {
             <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Your Shows</h2>
             <div className="flex gap-2 overflow-x-auto pb-2">
               {yourShows.length > 0 ? yourShows.map((room) => <RailCard key={`your-${room.id}`} room={room} />) : (
-                <div className="text-[12px] text-zinc-400">No RSVP shows yet.</div>
+                <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>No RSVP shows yet.</div>
               )}
             </div>
           </section>
@@ -755,7 +798,7 @@ export const CatalogPage = () => {
             <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Upcoming Shows</h2>
             <div className="flex gap-2 overflow-x-auto pb-2">
               {upcomingShows.length > 0 ? upcomingShows.map((room) => <RailCard key={`upcoming-${room.id}`} room={room} />) : (
-                <div className="text-[12px] text-zinc-400">No upcoming rooms.</div>
+                <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>No upcoming rooms.</div>
               )}
             </div>
           </section>
@@ -766,33 +809,104 @@ export const CatalogPage = () => {
               {currentShows.length > 0 ? currentShows.map((room) => (
                 <CurrentCard key={`current-${room.id}`} room={room} />
               )) : (
-                <p className="text-[12px] text-zinc-400 col-span-2">No current live shows.</p>
+                <p className={`text-[12px] col-span-2 ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>No current live shows.</p>
               )}
             </div>
           </section>
         </div>
 
-        <div className="fixed bottom-0 left-0 right-0 bg-[#0f1012] border-t border-zinc-800/80">
+        <div className={`fixed bottom-0 left-0 right-0 border-t ${bottomBarThemeClass}`}>
           <div className="mx-auto w-full max-w-md px-6 py-3">
             <div className="grid grid-cols-5 gap-3">
-              <button type="button" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-cart">
-                <ShoppingCart className="w-5 h-5 text-white" />
+              <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-cart">
+                <ShoppingCart className="w-5 h-5" />
               </button>
-              <button type="button" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-search">
-                <Search className="w-5 h-5 text-white" />
+              <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-search">
+                <Search className="w-5 h-5" />
               </button>
-              <button type="button" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-home">
-                <Home className="w-5 h-5 text-white" />
+              <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-home">
+                <Home className="w-5 h-5" />
               </button>
-              <button type="button" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-insights">
-                <ChartLine className="w-5 h-5 text-white" />
+              <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-insights">
+                <ChartLine className="w-5 h-5" />
               </button>
-              <button type="button" onClick={handleLogout} title="Logout" className="h-10 rounded-lg bg-black flex items-center justify-center" aria-label="nav-settings">
-                <Settings className="w-5 h-5 text-white" />
+              <button
+                type="button"
+                onClick={() => setShowSettingsSheet(true)}
+                title="App Settings"
+                className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`}
+                aria-label="nav-settings"
+              >
+                <Settings className="w-5 h-5" />
               </button>
             </div>
           </div>
         </div>
+
+        {showSettingsSheet && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-end">
+            <div className={`w-full max-w-md mx-auto rounded-t-2xl border p-5 ${isDarkMode ? 'border-zinc-800 bg-[#111214] text-white' : 'border-[#c8c1b5] bg-[#f6f1e8] text-[#111]'}`}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-ppmori-semibold">App Settings</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsSheet(false)}
+                  className={`text-xs underline ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className={`rounded-xl border p-3 mb-3 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}>
+                <p className="text-sm font-ppmori-semibold mb-1">Account</p>
+                <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Name: {profile?.displayName || 'N/A'}</p>
+                <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Phone: {profile?.phone || 'N/A'}</p>
+                <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Email: {profile?.email || 'N/A'}</p>
+              </div>
+
+              <div className={`rounded-xl border p-3 mb-3 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-ppmori-semibold">Notifications</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>Enable app alerts and room reminders</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateSetting('notificationsEnabled', !appSettings.notificationsEnabled)}
+                    className={`h-8 px-3 rounded-lg text-xs font-ppmori-semibold ${appSettings.notificationsEnabled ? 'bg-emerald-500 text-black' : (isDarkMode ? 'bg-zinc-700 text-white' : 'bg-[#d3cdc2] text-[#111]')}`}
+                  >
+                    {appSettings.notificationsEnabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+              </div>
+
+              <div className={`rounded-xl border p-3 mb-5 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-ppmori-semibold">Dark Mode</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>Switch between dark and light theme</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateSetting('darkMode', !isDarkMode)}
+                    className={`h-8 px-3 rounded-lg text-xs font-ppmori-semibold flex items-center gap-1 ${isDarkMode ? 'bg-zinc-700 text-white' : 'bg-[#d3cdc2] text-[#111]'}`}
+                  >
+                    {isDarkMode ? <Moon className="w-3 h-3" /> : <Sun className="w-3 h-3" />}
+                    {isDarkMode ? 'Dark' : 'Light'}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full h-11 rounded-lg bg-orange-500 text-black font-ppmori-semibold"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        )}
 
         {selectedRoomForRsvp && (
           <div className="fixed inset-0 z-50 bg-black/70 flex items-end">
