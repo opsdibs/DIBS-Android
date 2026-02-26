@@ -721,11 +721,11 @@ export const CatalogPage = () => {
   const seatsLeft = Math.max(0, Number(selectedRsvpCfg.capacity || 0) - Number(selectedRsvpCfg.bookedCount || 0));
 
   return (
-    <div className="h-screen bg-black text-white overflow-y-auto">
+    <div className="h-screen bg-black text-white overflow-y-auto font-ppmori">
       <div className="mx-auto w-full max-w-md min-h-full relative pb-28">
         <div className="px-6 pt-6">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-1xl font-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
+            <h1 className="text-1xl font-ppmori-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
             <div className="flex items-center gap-4">
               <Bell className="w-5 h-5 text-white" />
               <div className="h-10 w-10 rounded-full bg-[#d56969]" />
@@ -743,7 +743,7 @@ export const CatalogPage = () => {
           {loadingRooms && <div className="text-xs text-zinc-400 mb-4">Loading shows...</div>}
 
           <section className="mb-6">
-            <h2 className="text-[#ff7a00] text-[28px] font-bold leading-none mb-3">Your Shows</h2>
+            <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Your Shows</h2>
             <div className="flex gap-2 overflow-x-auto pb-2">
               {yourShows.length > 0 ? yourShows.map((room) => <RailCard key={`your-${room.id}`} room={room} />) : (
                 <div className="text-[12px] text-zinc-400">No RSVP shows yet.</div>
@@ -752,7 +752,7 @@ export const CatalogPage = () => {
           </section>
 
           <section className="mb-6">
-            <h2 className="text-[#ff7a00] text-[28px] font-bold leading-none mb-3">Upcoming Shows</h2>
+            <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Upcoming Shows</h2>
             <div className="flex gap-2 overflow-x-auto pb-2">
               {upcomingShows.length > 0 ? upcomingShows.map((room) => <RailCard key={`upcoming-${room.id}`} room={room} />) : (
                 <div className="text-[12px] text-zinc-400">No upcoming rooms.</div>
@@ -761,7 +761,7 @@ export const CatalogPage = () => {
           </section>
 
           <section>
-            <h2 className="text-[#ff7a00] text-[28px] font-bold leading-none mb-3">Current Shows</h2>
+            <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Current Shows</h2>
             <div className="grid grid-cols-2 gap-3 pb-4">
               {currentShows.length > 0 ? currentShows.map((room) => (
                 <CurrentCard key={`current-${room.id}`} room={room} />
