@@ -6,7 +6,7 @@ import { ref, get, onValue, push, set, update, runTransaction } from 'firebase/d
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
-import { ShoppingCart, Search, Home, ChartLine, Settings, Bell, Moon, Sun, ChevronDown, ChevronLeft } from 'lucide-react';
+import { ShoppingCart, Search, Home, Settings, Bell, Moon, Sun, ChevronDown, ChevronLeft } from 'lucide-react';
 import { auth, db, storage } from '../lib/firebase';
 import { WaitingScreen } from './WaitingScreen';
 
@@ -132,6 +132,8 @@ export const CatalogPage = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [nowMs, setNowMs] = useState(Date.now());
+  const [showRoomSearch, setShowRoomSearch] = useState(false);
+  const [roomSearchQuery, setRoomSearchQuery] = useState('');
   const avatarInputRef = useRef(null);
 
   useEffect(() => {
@@ -397,6 +399,20 @@ export const CatalogPage = () => {
   const currentShows = useMemo(
     () => rooms.filter((r) => getRoomState(r, nowMs) === 'current' && !yourSet.has(r.id)),
     [rooms, yourSet, nowMs]
+  );
+
+  const normalizedSearch = roomSearchQuery.trim().toLowerCase();
+  const filteredYourShows = useMemo(
+    () => yourShows.filter((room) => !normalizedSearch || String(room.id || '').toLowerCase().includes(normalizedSearch)),
+    [yourShows, normalizedSearch]
+  );
+  const filteredUpcomingShows = useMemo(
+    () => upcomingShows.filter((room) => !normalizedSearch || String(room.id || '').toLowerCase().includes(normalizedSearch)),
+    [upcomingShows, normalizedSearch]
+  );
+  const filteredCurrentShows = useMemo(
+    () => currentShows.filter((room) => !normalizedSearch || String(room.id || '').toLowerCase().includes(normalizedSearch)),
+    [currentShows, normalizedSearch]
   );
 
   const handleJoinRoom = async (roomId) => {
@@ -849,9 +865,18 @@ export const CatalogPage = () => {
           className="hidden"
         />
         <div className="px-6 pt-6">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-ppmori-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowRoomSearch((prev) => !prev)}
+                className={`h-9 w-9 rounded-full border flex items-center justify-center transition-colors ${isDarkMode ? 'border-zinc-700 bg-black/30 text-zinc-200' : 'border-[#c8c1b5] bg-white/70 text-[#111]'}`}
+                aria-label="Search rooms"
+                title="Search rooms"
+              >
+                <Search className="w-4 h-4" />
+              </button>
               <Bell className={`w-5 h-5 ${isDarkMode ? 'text-white' : 'text-[#111]'}`} />
               <button
                 type="button"
@@ -874,6 +899,26 @@ export const CatalogPage = () => {
               </button>
             </div>
           </div>
+
+          <AnimatePresence initial={false}>
+            {showRoomSearch && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.18 }}
+                className={`mb-4 rounded-xl border px-3 py-2 flex items-center gap-2 ${isDarkMode ? 'border-zinc-800 bg-black/35' : 'border-[#c8c1b5] bg-white/70'}`}
+              >
+                <Search className={`w-4 h-4 ${isDarkMode ? 'text-zinc-400' : 'text-[#6a6a6a]'}`} />
+                <input
+                  value={roomSearchQuery}
+                  onChange={(e) => setRoomSearchQuery(e.target.value)}
+                  placeholder="Search room names"
+                  className={`w-full bg-transparent text-sm outline-none ${isDarkMode ? 'text-white placeholder:text-zinc-500' : 'text-[#111] placeholder:text-[#7a7a7a]'}`}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <AnimatePresence mode="popLayout">
             {error && (
@@ -908,8 +953,8 @@ export const CatalogPage = () => {
           <section className="mb-6">
             <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Your Shows</h2>
             <div className="flex gap-2 overflow-x-auto pb-2">
-              {yourShows.length > 0 ? yourShows.map((room) => <RailCard key={`your-${room.id}`} room={room} />) : (
-                <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>No RSVP shows yet.</div>
+              {filteredYourShows.length > 0 ? filteredYourShows.map((room) => <RailCard key={`your-${room.id}`} room={room} />) : (
+                <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>{normalizedSearch ? 'No matching rooms.' : 'No RSVP shows yet.'}</div>
               )}
             </div>
           </section>
@@ -917,8 +962,8 @@ export const CatalogPage = () => {
           <section className="mb-6">
             <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Upcoming Shows</h2>
             <div className="flex gap-2 overflow-x-auto pb-2">
-              {upcomingShows.length > 0 ? upcomingShows.map((room) => <RailCard key={`upcoming-${room.id}`} room={room} />) : (
-                <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>No upcoming rooms.</div>
+              {filteredUpcomingShows.length > 0 ? filteredUpcomingShows.map((room) => <RailCard key={`upcoming-${room.id}`} room={room} />) : (
+                <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>{normalizedSearch ? 'No matching rooms.' : 'No upcoming rooms.'}</div>
               )}
             </div>
           </section>
@@ -926,10 +971,10 @@ export const CatalogPage = () => {
           <section>
             <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Current Shows</h2>
             <div className="grid grid-cols-2 gap-3 pb-4">
-              {currentShows.length > 0 ? currentShows.map((room) => (
+              {filteredCurrentShows.length > 0 ? filteredCurrentShows.map((room) => (
                 <CurrentCard key={`current-${room.id}`} room={room} />
               )) : (
-                <p className={`text-[12px] col-span-2 ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>No current live shows.</p>
+                <p className={`text-[12px] col-span-2 ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>{normalizedSearch ? 'No matching rooms.' : 'No current live shows.'}</p>
               )}
             </div>
           </section>
@@ -939,18 +984,12 @@ export const CatalogPage = () => {
           <div className="mx-auto w-full max-w-md px-3">
             <div className={`w-full border border-b-0 rounded-t-[8px] overflow-hidden ${bottomBarThemeClass}`}>
               <div className="px-3 py-2.5">
-              <div className="grid grid-cols-5 gap-3">
+              <div className="grid grid-cols-3 gap-3">
               <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-cart">
                 <ShoppingCart className="w-5 h-5" />
               </button>
-              <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-search">
-                <Search className="w-5 h-5" />
-              </button>
               <button type="button" onClick={handleGoHome} className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-home">
                 <Home className="w-5 h-5" />
-              </button>
-              <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-insights">
-                <ChartLine className="w-5 h-5" />
               </button>
               <button
                 type="button"
