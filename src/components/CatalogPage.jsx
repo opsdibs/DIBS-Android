@@ -30,6 +30,13 @@ const DEFAULT_APP_SETTINGS = {
   notificationsEnabled: true,
   darkMode: true
 };
+const DEFAULT_HOST_ACCESS = {
+  status: 'none',
+  requestedAt: 0,
+  reviewedAt: 0,
+  reviewedBy: '',
+  reason: ''
+};
 
 function sanitizePhone(value = '') {
   return String(value).replace(/\D/g, '').slice(-10);
@@ -38,6 +45,18 @@ function sanitizePhone(value = '') {
 function toE164India(value = '') {
   const digits = sanitizePhone(value);
   return digits ? `+91${digits}` : '';
+}
+
+function normalizeHostAccess(value = {}) {
+  const status = String(value?.status || DEFAULT_HOST_ACCESS.status).toLowerCase();
+  const allowedStatus = new Set(['none', 'pending', 'approved', 'rejected']);
+  return {
+    status: allowedStatus.has(status) ? status : DEFAULT_HOST_ACCESS.status,
+    requestedAt: Number(value?.requestedAt || 0),
+    reviewedAt: Number(value?.reviewedAt || 0),
+    reviewedBy: String(value?.reviewedBy || ''),
+    reason: String(value?.reason || '')
+  };
 }
 
 function normalizeProfile(base = {}) {
@@ -54,7 +73,8 @@ function normalizeProfile(base = {}) {
     displayName: String(base.displayName || base.username || '').trim(),
     lastRoomId: String(base.lastRoomId || '').trim(),
     photoURL: String(base.photoURL || '').trim(),
-    firebaseUid
+    firebaseUid,
+    hostAccess: normalizeHostAccess(base.hostAccess || DEFAULT_HOST_ACCESS)
   };
 }
 
@@ -128,6 +148,7 @@ export const CatalogPage = () => {
   const [selectedLockedRoom, setSelectedLockedRoom] = useState(null);
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [requestingHostAccess, setRequestingHostAccess] = useState(false);
   const [appSettings, setAppSettings] = useState(DEFAULT_APP_SETTINGS);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -181,6 +202,7 @@ export const CatalogPage = () => {
             merged.phone = sanitizePhone(val.phone || merged.phone);
             merged.phoneE164 = val.phoneE164 || merged.phoneE164 || toE164India(merged.phone);
             merged.photoURL = String(val.photoURL || merged.photoURL || '').trim();
+            merged.hostAccess = normalizeHostAccess(val.hostAccess || merged.hostAccess || DEFAULT_HOST_ACCESS);
           }
         } catch (e) {
           console.error('Failed to hydrate profile', e);
@@ -273,6 +295,41 @@ export const CatalogPage = () => {
       unsub();
     };
   }, [navigate]);
+
+  useEffect(() => {
+    if (!profile?.firebaseUid) return undefined;
+
+    const profileRef = ref(db, `users/${profile.firebaseUid}`);
+    const unsubscribe = onValue(
+      profileRef,
+      (snapshot) => {
+        if (!snapshot.exists()) return;
+        const data = snapshot.val() || {};
+
+        setProfile((prev) => {
+          if (!prev) return prev;
+          const nextProfile = normalizeProfile({
+            ...prev,
+            role: data.role || prev.role,
+            displayName: data.displayName || data.username || prev.displayName,
+            email: data.email || prev.email,
+            phone: data.phone || prev.phone,
+            phoneE164: data.phoneE164 || prev.phoneE164,
+            lastRoomId: data.lastRoomId || prev.lastRoomId,
+            photoURL: data.photoURL || prev.photoURL,
+            hostAccess: data.hostAccess || prev.hostAccess
+          });
+          localStorage.setItem(SESSION_KEY, JSON.stringify(nextProfile));
+          return nextProfile;
+        });
+      },
+      (err) => {
+        console.error('Failed to subscribe profile updates', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [profile?.firebaseUid]);
 
   const rsvpOwnerId = profile?.firebaseUid || profile?.userId || (profile?.phone ? `USER-${profile.phone}` : '');
 
@@ -414,6 +471,25 @@ export const CatalogPage = () => {
     () => currentShows.filter((room) => !normalizedSearch || String(room.id || '').toLowerCase().includes(normalizedSearch)),
     [currentShows, normalizedSearch]
   );
+  const hostAccess = normalizeHostAccess(profile?.hostAccess || DEFAULT_HOST_ACCESS);
+  const hostAccessStatus = hostAccess.status;
+  const isHostMode = String(profile?.role || '').toLowerCase() === 'host' || hostAccessStatus === 'approved';
+  const hostAccessStatusLabel =
+    hostAccessStatus === 'approved'
+      ? 'Approved'
+      : hostAccessStatus === 'pending'
+        ? 'Pending'
+        : hostAccessStatus === 'rejected'
+          ? 'Rejected'
+          : 'Not Requested';
+  const hostAccessStatusHint =
+    hostAccessStatus === 'approved'
+      ? 'Host mode is enabled for this account.'
+      : hostAccessStatus === 'pending'
+        ? 'Your host request is under review.'
+        : hostAccessStatus === 'rejected'
+          ? hostAccess.reason || 'Request was rejected. You can submit again.'
+          : 'Tap below to request host access.';
 
   const handleJoinRoom = async (roomId) => {
     if (!profile) return;
@@ -431,7 +507,7 @@ export const CatalogPage = () => {
 
     try {
       const finalName = profile.displayName;
-      const role = profile.role || 'audience';
+      const role = isHostMode ? 'host' : (profile.role || 'audience');
       const userId = profile.userId || profile.firebaseUid || `USER-${profile.phone}`;
 
       const userRef = push(ref(db, `audience_data/${roomId}`));
@@ -618,6 +694,17 @@ export const CatalogPage = () => {
     setNotice('');
 
     const roomState = getRoomState(room, nowMs);
+    if (isHostMode) {
+      if (roomState === 'ended') {
+        setError('This show has ended.');
+        return;
+      }
+      setSelectedRoomForRsvp(null);
+      setSelectedLockedRoom(null);
+      handleJoinRoom(room.id);
+      return;
+    }
+
     const isRegistered = isActiveRsvpStatus(userRsvps?.[room.id]?.status);
 
     if (roomState === 'ended') {
@@ -683,6 +770,60 @@ export const CatalogPage = () => {
     setSelectedLockedRoom(null);
     setShowSettingsSheet(false);
     navigate('/catalog', { replace: true });
+  };
+
+  const handleRequestHostAccess = async () => {
+    if (!profile?.firebaseUid) {
+      setError('Host request needs OTP account login. Please login again.');
+      setNotice('');
+      return;
+    }
+
+    if (hostAccessStatus === 'pending') {
+      setNotice('Host request is already pending.');
+      setError('');
+      return;
+    }
+
+    if (isHostMode && hostAccessStatus === 'approved') {
+      setNotice('Host mode is already enabled for this account.');
+      setError('');
+      return;
+    }
+
+    setRequestingHostAccess(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const now = Date.now();
+      const nextHostAccess = {
+        status: 'pending',
+        requestedAt: now,
+        reviewedAt: 0,
+        reviewedBy: '',
+        reason: ''
+      };
+
+      await update(ref(db, `users/${profile.firebaseUid}`), {
+        hostAccess: nextHostAccess,
+        updatedAt: now
+      });
+
+      const nextProfile = {
+        ...profile,
+        hostAccess: nextHostAccess
+      };
+      setProfile(nextProfile);
+      localStorage.setItem(SESSION_KEY, JSON.stringify(nextProfile));
+      setNotice('Host access request submitted. Waiting for admin approval.');
+    } catch (err) {
+      console.error('Host access request failed:', err);
+      setError('Failed to submit host request. Please retry.');
+      setNotice('');
+    } finally {
+      setRequestingHostAccess(false);
+    }
   };
 
   const updateSetting = (key, value) => {
@@ -758,6 +899,12 @@ export const CatalogPage = () => {
     if (joiningRoom === room.id) return 'Entering...';
 
     const roomState = getRoomState(room, nowMs);
+    if (isHostMode) {
+      if (roomState === 'ended') return 'Show Ended';
+      if (roomState === 'upcoming') return 'Enter as Host';
+      return room.isLive ? 'Manage Live' : 'Enter as Host';
+    }
+
     const rsvpStatus = String(userRsvps?.[room.id]?.status || '').toLowerCase();
     const isRegistered = isActiveRsvpStatus(rsvpStatus);
 
@@ -949,6 +1096,12 @@ export const CatalogPage = () => {
             )}
           </AnimatePresence>
 
+          {isHostMode && (
+            <div className="mb-3 rounded-md border border-orange-500/40 bg-orange-950/20 px-2 py-2 text-[11px] text-orange-100">
+              Host mode active
+            </div>
+          )}
+
           {loadingRooms && <div className="text-xs text-zinc-400 mb-4">Loading shows...</div>}
 
           <section className="mb-6">
@@ -1048,6 +1201,7 @@ export const CatalogPage = () => {
                 <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Name: {profile?.displayName || 'N/A'}</p>
                 <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Phone: {profile?.phone || 'N/A'}</p>
                 <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Email: {profile?.email || 'N/A'}</p>
+                <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Role: {isHostMode ? 'host' : 'user'}</p>
                 <p className={`text-[11px] mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>Tip: tap the profile circle on top to change photo.</p>
               </motion.div>
 
@@ -1055,6 +1209,51 @@ export const CatalogPage = () => {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: 0.06 }}
+                className={`rounded-xl border p-3 mb-3 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-ppmori-semibold">Host Access</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>{hostAccessStatusHint}</p>
+                  </div>
+                  <span
+                    className={`text-[10px] px-2 py-1 rounded-full border ${
+                      hostAccessStatus === 'approved'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50'
+                        : hostAccessStatus === 'pending'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-400/50'
+                          : hostAccessStatus === 'rejected'
+                            ? 'bg-red-500/20 text-red-300 border-red-400/50'
+                            : (isDarkMode ? 'bg-zinc-800 text-zinc-300 border-zinc-700' : 'bg-[#e7e1d5] text-[#454545] border-[#c8c1b5]')
+                    }`}
+                  >
+                    {hostAccessStatusLabel}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRequestHostAccess}
+                  disabled={requestingHostAccess || hostAccessStatus === 'pending' || (isHostMode && hostAccessStatus === 'approved')}
+                  className={`w-full h-9 rounded-lg text-sm font-ppmori-semibold transition-opacity disabled:opacity-55 ${
+                    isDarkMode ? 'bg-zinc-800 text-white border border-zinc-700' : 'bg-[#ede6da] text-[#111] border border-[#c8c1b5]'
+                  }`}
+                >
+                  {requestingHostAccess
+                    ? 'Submitting...'
+                    : hostAccessStatus === 'pending'
+                      ? 'Request Pending'
+                      : isHostMode && hostAccessStatus === 'approved'
+                        ? 'Host Access Enabled'
+                        : hostAccessStatus === 'rejected'
+                          ? 'Request Again'
+                          : 'Request Host Access'}
+                </button>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.09 }}
                 className={`rounded-xl border p-3 mb-3 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}
               >
                 <div className="flex items-center justify-between">
@@ -1084,7 +1283,7 @@ export const CatalogPage = () => {
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: 0.09 }}
+                transition={{ duration: 0.2, delay: 0.12 }}
                 className={`rounded-xl border p-3 mb-5 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}
               >
                 <div className="flex items-center justify-between">
@@ -1117,7 +1316,7 @@ export const CatalogPage = () => {
                 className="w-full h-11 rounded-lg bg-orange-500 text-black font-ppmori-semibold"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: 0.12 }}
+                transition={{ duration: 0.2, delay: 0.15 }}
                 whileTap={{ scale: 0.98 }}
               >
                 Logout

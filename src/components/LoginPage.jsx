@@ -161,6 +161,25 @@ function isOtpRateLimited(code = '', message = '') {
 const SESSION_KEY = 'dibs_auth_context';
 const TEST_PASS_OTP = import.meta.env.VITE_TEST_PASS_OTP || '123456';
 const ENABLE_TEST_PASS = (import.meta.env.VITE_ENABLE_TEST_PASS ?? 'true') === 'true';
+const DEFAULT_HOST_ACCESS = {
+  status: 'none',
+  requestedAt: 0,
+  reviewedAt: 0,
+  reviewedBy: '',
+  reason: ''
+};
+
+function normalizeHostAccess(value = {}) {
+  const status = String(value?.status || DEFAULT_HOST_ACCESS.status).toLowerCase();
+  const allowedStatus = new Set(['none', 'pending', 'approved', 'rejected']);
+  return {
+    status: allowedStatus.has(status) ? status : DEFAULT_HOST_ACCESS.status,
+    requestedAt: Number(value?.requestedAt || 0),
+    reviewedAt: Number(value?.reviewedAt || 0),
+    reviewedBy: String(value?.reviewedBy || ''),
+    reason: String(value?.reason || '')
+  };
+}
 
 export const LoginPage = () => {
   const navigate = useNavigate();
@@ -530,6 +549,8 @@ export const LoginPage = () => {
       let email = `${cleanPhone}@otp.local`;
       let unregistered = false;
       let resolvedDisplayName = '';
+      let profileRole = 'audience';
+      let hostAccess = { ...DEFAULT_HOST_ACCESS };
 
       if (testSnapshot.exists()) {
         const testRecord = testSnapshot.val() || {};
@@ -547,15 +568,40 @@ export const LoginPage = () => {
         const userProfileRef = ref(db, `users/${firebaseUid}`);
         const userProfileSnap = await get(userProfileRef);
         const existingUser = userProfileSnap.exists() ? userProfileSnap.val() : {};
+        const existingRole = String(existingUser?.role || '').toLowerCase();
+        hostAccess = normalizeHostAccess(existingUser?.hostAccess || DEFAULT_HOST_ACCESS);
 
         resolvedDisplayName = String(existingUser?.displayName || existingUser?.username || '').trim();
+
+        if (existingRole === 'host' && hostAccess.status === 'none') {
+          hostAccess = {
+            ...hostAccess,
+            status: 'approved',
+            reviewedAt: Date.now(),
+            reviewedBy: 'legacy-host'
+          };
+        }
+
+        const isApprovedHost = hostAccess.status === 'approved' || existingRole === 'host';
+        if (isApprovedHost) {
+          role = 'host';
+          unregistered = false;
+          profileRole = 'host';
+        } else if (existingRole === 'host') {
+          profileRole = 'audience';
+        } else if (existingRole === 'audience' || existingRole === 'user' || existingRole === 'viewer') {
+          profileRole = existingRole === 'user' ? 'user' : 'audience';
+        } else {
+          profileRole = 'audience';
+        }
 
         await update(userProfileRef, {
           uid: firebaseUid,
           phone: cleanPhone,
           phoneE164,
           email,
-          role,
+          role: profileRole,
+          hostAccess,
           authProvider: 'phone',
           createdAt: existingUser?.createdAt || Date.now(),
           lastLoginAt: Date.now(),
@@ -585,13 +631,24 @@ export const LoginPage = () => {
           email,
           unregistered,
           displayName: resolvedDisplayName,
-          firebaseUid
+          firebaseUid,
+          hostAccess
         });
         setLoading(false);
         return;
       }
 
-      setPendingJoin({ role, userId, phone: cleanPhone, phoneE164, email, unregistered, firebaseUid });
+      setPendingJoin({
+        role,
+        profileRole,
+        userId,
+        phone: cleanPhone,
+        phoneE164,
+        email,
+        unregistered,
+        firebaseUid,
+        hostAccess
+      });
       setDisplayName('');
       setLoginStep('name');
       setLoading(false);
@@ -687,10 +744,18 @@ export const LoginPage = () => {
       const isFirebaseUid = !pendingJoin.userId.startsWith('USER-') && !pendingJoin.userId.startsWith('TEST-') && !pendingJoin.userId.startsWith('SPEC-');
 
       if (isFirebaseUid) {
+        const persistedRole =
+          pendingJoin.profileRole === 'host'
+            ? 'host'
+            : pendingJoin.profileRole === 'user'
+              ? 'user'
+              : 'audience';
+
         await update(ref(db, `users/${pendingJoin.userId}`), {
           displayName: finalName,
           username: finalName,
-          role: pendingJoin.role,
+          role: persistedRole,
+          hostAccess: normalizeHostAccess(pendingJoin.hostAccess || DEFAULT_HOST_ACCESS),
           phone: pendingJoin.phone,
           phoneE164: pendingJoin.phoneE164 || toE164India(pendingJoin.phone),
           email: pendingJoin.email,
@@ -707,7 +772,8 @@ export const LoginPage = () => {
         email: pendingJoin.email,
         unregistered: pendingJoin.unregistered,
         displayName: finalName,
-        firebaseUid: pendingJoin.firebaseUid || (isFirebaseUid ? pendingJoin.userId : null)
+        firebaseUid: pendingJoin.firebaseUid || (isFirebaseUid ? pendingJoin.userId : null),
+        hostAccess: normalizeHostAccess(pendingJoin.hostAccess || DEFAULT_HOST_ACCESS)
       });
     } catch (err) {
       console.error(err);
