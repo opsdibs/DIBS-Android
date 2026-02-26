@@ -1,11 +1,12 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { ref, get, onValue, push, set, update, runTransaction } from 'firebase/database';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { ShoppingCart, Search, Home, ChartLine, Settings, Bell, Moon, Sun } from 'lucide-react';
-import { auth, db } from '../lib/firebase';
+import { auth, db, storage } from '../lib/firebase';
 import { WaitingScreen } from './WaitingScreen';
 
 const SESSION_KEY = 'dibs_auth_context';
@@ -51,6 +52,7 @@ function normalizeProfile(base = {}) {
     unregistered: !!base.unregistered,
     displayName: String(base.displayName || base.username || '').trim(),
     lastRoomId: String(base.lastRoomId || '').trim(),
+    photoURL: String(base.photoURL || '').trim(),
     firebaseUid
   };
 }
@@ -124,10 +126,12 @@ export const CatalogPage = () => {
   const [selectedRoomForRsvp, setSelectedRoomForRsvp] = useState(null);
   const [selectedLockedRoom, setSelectedLockedRoom] = useState(null);
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [appSettings, setAppSettings] = useState(DEFAULT_APP_SETTINGS);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [nowMs, setNowMs] = useState(Date.now());
+  const avatarInputRef = useRef(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
@@ -173,6 +177,7 @@ export const CatalogPage = () => {
             merged.lastRoomId = String(val.lastRoomId || merged.lastRoomId || '').trim();
             merged.phone = sanitizePhone(val.phone || merged.phone);
             merged.phoneE164 = val.phoneE164 || merged.phoneE164 || toE164India(merged.phone);
+            merged.photoURL = String(val.photoURL || merged.photoURL || '').trim();
           }
         } catch (e) {
           console.error('Failed to hydrate profile', e);
@@ -672,6 +677,68 @@ export const CatalogPage = () => {
     }));
   };
 
+  const handleAvatarPick = () => {
+    if (uploadingAvatar) return;
+    avatarInputRef.current?.click();
+  };
+
+  const handleAvatarFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !profile) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file.');
+      setNotice('');
+      return;
+    }
+
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      setError('Image too large. Use max 5MB.');
+      setNotice('');
+      return;
+    }
+
+    const storageUserId = rsvpOwnerId || profile.firebaseUid || profile.userId;
+    if (!storageUserId) {
+      setError('Unable to resolve account. Please login again.');
+      setNotice('');
+      return;
+    }
+
+    setUploadingAvatar(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const avatarPath = `user_avatars/${storageUserId}/${Date.now()}-${safeName}`;
+      const avatarRef = storageRef(storage, avatarPath);
+      await uploadBytes(avatarRef, file, { contentType: file.type || 'image/jpeg' });
+      const photoURL = await getDownloadURL(avatarRef);
+
+      await update(ref(db, `users/${storageUserId}`), {
+        photoURL,
+        updatedAt: Date.now()
+      });
+
+      const nextProfile = {
+        ...profile,
+        photoURL
+      };
+      setProfile(nextProfile);
+      localStorage.setItem(SESSION_KEY, JSON.stringify(nextProfile));
+      setNotice('Profile photo updated.');
+    } catch (err) {
+      console.error('Avatar upload failed:', err);
+      setError('Failed to upload image. Please retry.');
+      setNotice('');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const getActionLabel = (room) => {
     if (joiningRoom === room.id) return 'Entering...';
 
@@ -773,12 +840,37 @@ export const CatalogPage = () => {
   return (
     <div className={`h-screen overflow-y-auto font-ppmori ${pageThemeClass}`}>
       <div className="mx-auto w-full max-w-md min-h-full relative pb-28">
+        <input
+          ref={avatarInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleAvatarFileChange}
+          className="hidden"
+        />
         <div className="px-6 pt-6">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-3xl font-ppmori-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
+            <h1 className="text-2xl font-ppmori-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
             <div className="flex items-center gap-4">
               <Bell className={`w-5 h-5 ${isDarkMode ? 'text-white' : 'text-[#111]'}`} />
-              <div className="h-10 w-10 rounded-full bg-[#d56969]" />
+              <button
+                type="button"
+                onClick={handleAvatarPick}
+                disabled={uploadingAvatar}
+                className="relative h-10 w-10 rounded-full overflow-hidden bg-[#d56969] border border-white/20 disabled:opacity-70"
+                aria-label="Change profile photo"
+                title="Change profile photo"
+              >
+                {profile?.photoURL ? (
+                  <img src={profile.photoURL} alt="Profile" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="h-full w-full flex items-center justify-center text-white text-sm font-ppmori-semibold">
+                    {String(profile?.displayName || 'U').trim().charAt(0).toUpperCase() || 'U'}
+                  </span>
+                )}
+                {uploadingAvatar && (
+                  <span className="absolute inset-0 bg-black/45 flex items-center justify-center text-[10px] text-white">...</span>
+                )}
+              </button>
             </div>
           </div>
 
@@ -869,6 +961,7 @@ export const CatalogPage = () => {
                 <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Name: {profile?.displayName || 'N/A'}</p>
                 <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Phone: {profile?.phone || 'N/A'}</p>
                 <p className={`text-xs ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Email: {profile?.email || 'N/A'}</p>
+                <p className={`text-[11px] mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>Tip: tap the profile circle on top to change photo.</p>
               </div>
 
               <div className={`rounded-xl border p-3 mb-3 ${isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-[#c8c1b5] bg-white/60'}`}>
