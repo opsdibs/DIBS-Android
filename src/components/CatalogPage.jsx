@@ -6,7 +6,7 @@ import { ref, get, onValue, push, set, update, runTransaction } from 'firebase/d
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
-import { ShoppingCart, Search, Home, Settings, Bell, Moon, Sun, ChevronDown, ChevronLeft } from 'lucide-react';
+import { ShoppingCart, Moon, Sun, ChevronDown, ChevronLeft } from 'lucide-react';
 import { auth, db, storage } from '../lib/firebase';
 import { WaitingScreen } from './WaitingScreen';
 
@@ -853,6 +853,7 @@ export const CatalogPage = () => {
   const cardThemeClass = isDarkMode ? 'bg-[#60626a]' : 'bg-[#b8b9bf]';
   const bottomBarThemeClass = isDarkMode ? 'bg-[#0f1012] border-zinc-800/80' : 'bg-[#ded9ce] border-[#c8c1b5]';
   const navButtonThemeClass = isDarkMode ? 'bg-black text-white' : 'bg-[#f6f3ec] text-[#111] border border-[#c8c1b5]';
+  const appIconFilter = isDarkMode ? 'brightness(0) invert(1)' : 'brightness(0)';
 
   return (
     <div className={`h-screen overflow-y-auto font-ppmori ${pageThemeClass}`}>
@@ -866,18 +867,18 @@ export const CatalogPage = () => {
         />
         <div className="px-6 pt-6">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-ppmori-semibold leading-none">Hello {profile?.displayName || '{X}'} !</h1>
+            <img src="/Dibs. (1).svg" alt="DIBS" className="h-24 w-[220px] object-contain object-left select-none -ml-3" />
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setShowRoomSearch((prev) => !prev)}
-                className={`h-9 w-9 rounded-full border flex items-center justify-center transition-colors ${isDarkMode ? 'border-zinc-700 bg-black/30 text-zinc-200' : 'border-[#c8c1b5] bg-white/70 text-[#111]'}`}
+                className={`h-7 w-7 flex items-center justify-center transition-opacity hover:opacity-80 ${isDarkMode ? 'text-zinc-200' : 'text-[#111]'}`}
                 aria-label="Search rooms"
                 title="Search rooms"
               >
-                <Search className="w-4 h-4" />
+                <img src="/icons/search icon.svg" alt="" className="w-5 h-5 select-none pointer-events-none" style={{ filter: appIconFilter }} />
               </button>
-              <Bell className={`w-5 h-5 ${isDarkMode ? 'text-white' : 'text-[#111]'}`} />
+              <img src="/icons/notifications icon.svg" alt="" className="w-5 h-5 select-none" style={{ filter: appIconFilter }} />
               <button
                 type="button"
                 onClick={handleAvatarPick}
@@ -909,7 +910,7 @@ export const CatalogPage = () => {
                 transition={{ duration: 0.18 }}
                 className={`mb-4 rounded-xl border px-3 py-2 flex items-center gap-2 ${isDarkMode ? 'border-zinc-800 bg-black/35' : 'border-[#c8c1b5] bg-white/70'}`}
               >
-                <Search className={`w-4 h-4 ${isDarkMode ? 'text-zinc-400' : 'text-[#6a6a6a]'}`} />
+                <img src="/icons/search icon.svg" alt="" className="w-4 h-4 select-none pointer-events-none opacity-70" style={{ filter: appIconFilter }} />
                 <input
                   value={roomSearchQuery}
                   onChange={(e) => setRoomSearchQuery(e.target.value)}
@@ -989,7 +990,7 @@ export const CatalogPage = () => {
                 <ShoppingCart className="w-5 h-5" />
               </button>
               <button type="button" onClick={handleGoHome} className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-home">
-                <Home className="w-5 h-5" />
+                <img src="/icons/home icon.svg" alt="" className="w-5 h-5 select-none pointer-events-none" style={{ filter: appIconFilter }} />
               </button>
               <button
                 type="button"
@@ -998,7 +999,7 @@ export const CatalogPage = () => {
                 className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`}
                 aria-label="nav-settings"
               >
-                <Settings className="w-5 h-5" />
+                <img src="/icons/settings icon.svg" alt="" className="w-5 h-5 select-none pointer-events-none" style={{ filter: appIconFilter }} />
               </button>
             </div>
           </div>
