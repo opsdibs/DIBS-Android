@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { ref, get, onValue, push, set, update, runTransaction } from 'firebase/database';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -271,7 +272,6 @@ export const CatalogPage = () => {
     };
   }, [navigate]);
 
-  const profileUserId = profile?.userId || profile?.firebaseUid || '';
   const rsvpOwnerId = profile?.firebaseUid || profile?.userId || (profile?.phone ? `USER-${profile.phone}` : '');
 
   useEffect(() => {
@@ -361,12 +361,11 @@ export const CatalogPage = () => {
   }, []);
 
   const yourShows = useMemo(() => {
-    if (!profileUserId && !rsvpOwnerId) return [];
+    if (!rsvpOwnerId) return [];
 
     const userRooms = rooms.filter((room) => {
-      const joinedViaAudience = !!room.audienceIndex?.[profileUserId];
       const joinedViaRsvp = isActiveRsvpStatus(userRsvps?.[room.id]?.status);
-      return joinedViaAudience || joinedViaRsvp;
+      return joinedViaRsvp;
     });
 
     userRooms.sort((a, b) => {
@@ -386,7 +385,7 @@ export const CatalogPage = () => {
     });
 
     return userRooms;
-  }, [rooms, profileUserId, profile?.lastRoomId, rsvpOwnerId, userRsvps, nowMs]);
+  }, [rooms, profile?.lastRoomId, rsvpOwnerId, userRsvps, nowMs]);
 
   const yourSet = useMemo(() => new Set(yourShows.map((r) => r.id)), [yourShows]);
 
@@ -914,9 +913,11 @@ export const CatalogPage = () => {
           </section>
         </div>
 
-        <div className={`fixed bottom-0 left-0 right-0 border-t ${bottomBarThemeClass}`}>
-          <div className="mx-auto w-full max-w-md px-6 py-3">
-            <div className="grid grid-cols-5 gap-3">
+        <div className="fixed bottom-0 left-0 right-0 z-40">
+          <div className="mx-auto w-full max-w-md px-3">
+            <div className={`w-full border border-b-0 rounded-t-[8px] overflow-hidden ${bottomBarThemeClass}`}>
+              <div className="px-3 py-2.5">
+              <div className="grid grid-cols-5 gap-3">
               <button type="button" className={`h-10 rounded-lg flex items-center justify-center ${navButtonThemeClass}`} aria-label="nav-cart">
                 <ShoppingCart className="w-5 h-5" />
               </button>
@@ -941,10 +942,27 @@ export const CatalogPage = () => {
             </div>
           </div>
         </div>
+        </div>
+        </div>
 
-        {showSettingsSheet && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-end">
-            <div className={`w-full max-w-md mx-auto rounded-t-2xl border p-5 ${isDarkMode ? 'border-zinc-800 bg-[#111214] text-white' : 'border-[#c8c1b5] bg-[#f6f1e8] text-[#111]'}`}>
+        <AnimatePresence>
+          {showSettingsSheet && (
+            <motion.div
+              className="fixed inset-0 z-50 bg-black/70 flex items-end"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setShowSettingsSheet(false)}
+            >
+              <motion.div
+                className={`w-full max-w-md mx-auto rounded-t-2xl border p-5 ${isDarkMode ? 'border-zinc-800 bg-[#111214] text-white' : 'border-[#c8c1b5] bg-[#f6f1e8] text-[#111]'}`}
+                initial={{ y: 44, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 44, opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.75 }}
+                onClick={(e) => e.stopPropagation()}
+              >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-ppmori-semibold">App Settings</h3>
                 <button
@@ -1004,9 +1022,10 @@ export const CatalogPage = () => {
               >
                 Logout
               </button>
-            </div>
-          </div>
-        )}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {selectedRoomForRsvp && (
           <div className="fixed inset-0 z-50 bg-black/70 flex items-end">
