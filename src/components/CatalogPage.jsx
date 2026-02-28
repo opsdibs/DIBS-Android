@@ -6,7 +6,7 @@ import { ref, get, onValue, push, set, update, runTransaction } from 'firebase/d
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
-import { ShoppingCart, Moon, Sun, ChevronDown, ChevronLeft } from 'lucide-react';
+import { ShoppingCart, Moon, Sun, ChevronDown, ChevronLeft, Plus } from 'lucide-react';
 import { auth, db, storage } from '../lib/firebase';
 import { WaitingScreen } from './WaitingScreen';
 
@@ -36,6 +36,14 @@ const DEFAULT_HOST_ACCESS = {
   reviewedAt: 0,
   reviewedBy: '',
   reason: ''
+};
+const DEFAULT_CREATE_ROOM_FORM = {
+  roomName: '',
+  startAt: '',
+  endAt: '',
+  capacity: '100',
+  rsvpOpen: true,
+  goLiveNow: false
 };
 
 function sanitizePhone(value = '') {
@@ -147,8 +155,11 @@ export const CatalogPage = () => {
   const [selectedRoomForRsvp, setSelectedRoomForRsvp] = useState(null);
   const [selectedLockedRoom, setSelectedLockedRoom] = useState(null);
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
+  const [showCreateRoomSheet, setShowCreateRoomSheet] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [requestingHostAccess, setRequestingHostAccess] = useState(false);
+  const [creatingRoom, setCreatingRoom] = useState(false);
+  const [createRoomForm, setCreateRoomForm] = useState(DEFAULT_CREATE_ROOM_FORM);
   const [appSettings, setAppSettings] = useState(DEFAULT_APP_SETTINGS);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -366,6 +377,8 @@ export const CatalogPage = () => {
             entries.push({
               id,
               isLive: !!room?.isLive,
+              ownerUid: String(room?.ownerUid || ''),
+              ownerName: String(room?.ownerName || ''),
               audienceCount: room?.audience_index ? Object.keys(room.audience_index).length : 0,
               audienceIndex: room?.audience_index || {},
               eventConfig: room?.event_config || {},
@@ -384,6 +397,8 @@ export const CatalogPage = () => {
               entries.push({
                 id: String(activeSnap.val()),
                 isLive: false,
+                ownerUid: '',
+                ownerName: '',
                 audienceCount: 0,
                 audienceIndex: {},
                 eventConfig: {},
@@ -419,10 +434,42 @@ export const CatalogPage = () => {
     return () => unsubscribe();
   }, []);
 
+  const hostAccess = normalizeHostAccess(profile?.hostAccess || DEFAULT_HOST_ACCESS);
+  const hostAccessStatus = hostAccess.status;
+  const isHostMode = String(profile?.role || '').toLowerCase() === 'host' || hostAccessStatus === 'approved';
+  const hostAccessStatusLabel =
+    hostAccessStatus === 'approved'
+      ? 'Approved'
+      : hostAccessStatus === 'pending'
+        ? 'Pending'
+        : hostAccessStatus === 'rejected'
+          ? 'Rejected'
+          : 'Not Requested';
+  const hostAccessStatusHint =
+    hostAccessStatus === 'approved'
+      ? 'Host mode is enabled for this account.'
+      : hostAccessStatus === 'pending'
+        ? 'Your host request is under review.'
+        : hostAccessStatus === 'rejected'
+          ? hostAccess.reason || 'Request was rejected. You can submit again.'
+          : 'Tap below to request host access.';
+  const hostOwnedRooms = useMemo(() => {
+    if (!isHostMode || !profile?.firebaseUid) return [];
+    return rooms.filter((room) => String(room.ownerUid || '') === profile.firebaseUid);
+  }, [rooms, isHostMode, profile?.firebaseUid]);
+
+  const listSourceRooms = useMemo(() => (isHostMode ? hostOwnedRooms : rooms), [isHostMode, hostOwnedRooms, rooms]);
+
   const yourShows = useMemo(() => {
+    if (isHostMode) {
+      const liveNow = hostOwnedRooms.filter((room) => room.isLive && getRoomState(room, nowMs) !== 'ended');
+      liveNow.sort((a, b) => a.id.localeCompare(b.id));
+      return liveNow;
+    }
+
     if (!rsvpOwnerId) return [];
 
-    const userRooms = rooms.filter((room) => {
+    const userRooms = listSourceRooms.filter((room) => {
       const joinedViaRsvp = isActiveRsvpStatus(userRsvps?.[room.id]?.status);
       return joinedViaRsvp;
     });
@@ -444,18 +491,18 @@ export const CatalogPage = () => {
     });
 
     return userRooms;
-  }, [rooms, profile?.lastRoomId, rsvpOwnerId, userRsvps, nowMs]);
+  }, [isHostMode, hostOwnedRooms, nowMs, rsvpOwnerId, userRsvps, listSourceRooms, profile?.lastRoomId]);
 
   const yourSet = useMemo(() => new Set(yourShows.map((r) => r.id)), [yourShows]);
 
   const upcomingShows = useMemo(
-    () => rooms.filter((r) => getRoomState(r, nowMs) === 'upcoming' && !yourSet.has(r.id)),
-    [rooms, yourSet, nowMs]
+    () => listSourceRooms.filter((r) => getRoomState(r, nowMs) === 'upcoming' && !yourSet.has(r.id)),
+    [listSourceRooms, yourSet, nowMs]
   );
 
   const currentShows = useMemo(
-    () => rooms.filter((r) => getRoomState(r, nowMs) === 'current' && !yourSet.has(r.id)),
-    [rooms, yourSet, nowMs]
+    () => listSourceRooms.filter((r) => getRoomState(r, nowMs) === 'current' && !yourSet.has(r.id)),
+    [listSourceRooms, yourSet, nowMs]
   );
 
   const normalizedSearch = roomSearchQuery.trim().toLowerCase();
@@ -471,25 +518,11 @@ export const CatalogPage = () => {
     () => currentShows.filter((room) => !normalizedSearch || String(room.id || '').toLowerCase().includes(normalizedSearch)),
     [currentShows, normalizedSearch]
   );
-  const hostAccess = normalizeHostAccess(profile?.hostAccess || DEFAULT_HOST_ACCESS);
-  const hostAccessStatus = hostAccess.status;
-  const isHostMode = String(profile?.role || '').toLowerCase() === 'host' || hostAccessStatus === 'approved';
-  const hostAccessStatusLabel =
-    hostAccessStatus === 'approved'
-      ? 'Approved'
-      : hostAccessStatus === 'pending'
-        ? 'Pending'
-        : hostAccessStatus === 'rejected'
-          ? 'Rejected'
-          : 'Not Requested';
-  const hostAccessStatusHint =
-    hostAccessStatus === 'approved'
-      ? 'Host mode is enabled for this account.'
-      : hostAccessStatus === 'pending'
-        ? 'Your host request is under review.'
-        : hostAccessStatus === 'rejected'
-          ? hostAccess.reason || 'Request was rejected. You can submit again.'
-          : 'Tap below to request host access.';
+  const isRoomOwnedByHost = (room) => {
+    if (!isHostMode) return true;
+    if (!profile?.firebaseUid) return false;
+    return String(room?.ownerUid || '') === String(profile.firebaseUid);
+  };
 
   const handleJoinRoom = async (roomId) => {
     if (!profile) return;
@@ -506,6 +539,14 @@ export const CatalogPage = () => {
     setJoiningRoom(roomId);
 
     try {
+      const roomMeta = listSourceRooms.find((entry) => entry.id === roomId) || rooms.find((entry) => entry.id === roomId);
+      if (isHostMode && !isRoomOwnedByHost(roomMeta)) {
+        setError('Hosts can only enter rooms they created.');
+        setNotice('');
+        setJoiningRoom('');
+        return;
+      }
+
       const finalName = profile.displayName;
       const role = isHostMode ? 'host' : (profile.role || 'audience');
       const userId = profile.userId || profile.firebaseUid || `USER-${profile.phone}`;
@@ -568,6 +609,114 @@ export const CatalogPage = () => {
       setError('Failed to enter room. Please retry.');
       setNotice('');
       setJoiningRoom('');
+    }
+  };
+
+  const handleCreateHostRoom = async () => {
+    if (!isHostMode || hostAccessStatus !== 'approved') {
+      setError('Only approved hosts can create rooms.');
+      setNotice('');
+      return;
+    }
+
+    if (!profile?.firebaseUid) {
+      setError('Host account session missing. Please login again.');
+      setNotice('');
+      return;
+    }
+
+    const rawName = String(createRoomForm.roomName || '').trim();
+    const roomId = rawName
+      .toUpperCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^A-Z0-9_-]/g, '')
+      .slice(0, 32);
+    const now = Date.now();
+    const startTimeMs = createRoomForm.goLiveNow ? now : parseTimeToMs(createRoomForm.startAt);
+    const providedEndMs = parseTimeToMs(createRoomForm.endAt);
+    const endTimeMs = providedEndMs || (startTimeMs ? startTimeMs + 60 * 60 * 1000 : 0);
+    const capacity = Math.max(1, Number.parseInt(createRoomForm.capacity, 10) || 100);
+
+    if (roomId.length < 3) {
+      setError('Room name must be at least 3 valid characters.');
+      setNotice('');
+      return;
+    }
+
+    if (!startTimeMs) {
+      setError('Choose a valid start date and time.');
+      setNotice('');
+      return;
+    }
+
+    if (!endTimeMs || endTimeMs <= startTimeMs) {
+      setError('End time must be after start time.');
+      setNotice('');
+      return;
+    }
+
+    setCreatingRoom(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const roomRef = ref(db, `rooms/${roomId}`);
+      const existing = await get(roomRef);
+      if (existing.exists()) {
+        setError('Room name already exists. Choose another name.');
+        setNotice('');
+        return;
+      }
+
+      const roomPayload = {
+        ownerUid: profile.firebaseUid,
+        ownerName: profile.displayName || 'Host',
+        createdAt: now,
+        updatedAt: now,
+        isLive: startTimeMs <= now && endTimeMs > now,
+        event_config: {
+          startTime: new Date(startTimeMs).toISOString(),
+          endTime: new Date(endTimeMs).toISOString(),
+          startTimeMs,
+          endTimeMs,
+          isMaintenanceMode: false
+        },
+        rsvp_config: {
+          ...DEFAULT_RSVP_CONFIG,
+          capacity,
+          rsvpOpen: !!createRoomForm.rsvpOpen,
+          bookedCount: 0,
+          waitlistCount: 0
+        },
+        rsvps: {},
+        audience_index: {},
+        chat: {},
+        viewers: {},
+        hostModeration: {
+          chatMuted: false,
+          isBanned: false,
+          kickNow: null
+        }
+      };
+
+      const updates = {
+        [`rooms/${roomId}`]: roomPayload,
+        [`host_rooms/${profile.firebaseUid}/${roomId}`]: true,
+        [`users/${profile.firebaseUid}/lastCreatedRoomId`]: roomId,
+        [`users/${profile.firebaseUid}/updatedAt`]: now
+      };
+      await update(ref(db), updates);
+
+      setCreateRoomForm(DEFAULT_CREATE_ROOM_FORM);
+      setShowCreateRoomSheet(false);
+      setNotice(`Room ${roomId} created successfully.`);
+      setError('');
+    } catch (err) {
+      console.error('Failed to create room:', err);
+      setError('Failed to create room. Please retry.');
+      setNotice('');
+    } finally {
+      setCreatingRoom(false);
     }
   };
 
@@ -695,6 +844,10 @@ export const CatalogPage = () => {
 
     const roomState = getRoomState(room, nowMs);
     if (isHostMode) {
+      if (!isRoomOwnedByHost(room)) {
+        setError('Hosts can only manage rooms they created.');
+        return;
+      }
       if (roomState === 'ended') {
         setError('This show has ended.');
         return;
@@ -900,6 +1053,7 @@ export const CatalogPage = () => {
 
     const roomState = getRoomState(room, nowMs);
     if (isHostMode) {
+      if (!isRoomOwnedByHost(room)) return 'Not Your Room';
       if (roomState === 'ended') return 'Show Ended';
       if (roomState === 'upcoming') return 'Enter as Host';
       return room.isLive ? 'Manage Live' : 'Enter as Host';
@@ -1101,6 +1255,23 @@ export const CatalogPage = () => {
               Host mode active
             </div>
           )}
+          {isHostMode && (
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSettingsSheet(false);
+                  setShowCreateRoomSheet(true);
+                }}
+                className={`w-full h-10 rounded-lg border text-sm font-ppmori-semibold flex items-center justify-center gap-2 ${
+                  isDarkMode ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-white/80 border-[#c8c1b5] text-[#111]'
+                }`}
+              >
+                <Plus className="w-4 h-4" />
+                Create Host Room
+              </button>
+            </div>
+          )}
 
           {loadingRooms && <div className="text-xs text-zinc-400 mb-4">Loading shows...</div>}
 
@@ -1108,7 +1279,9 @@ export const CatalogPage = () => {
             <h2 className="text-[#ff7a00] text-[28px] font-ppmori-semibold leading-none mb-3">Your Shows</h2>
             <div className="flex gap-2 overflow-x-auto horizontal-rail-smooth pb-2">
               {filteredYourShows.length > 0 ? filteredYourShows.map((room) => <RailCard key={`your-${room.id}`} room={room} />) : (
-                <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>{normalizedSearch ? 'No matching rooms.' : 'No RSVP shows yet.'}</div>
+                <div className={`text-[12px] ${isDarkMode ? 'text-zinc-400' : 'text-[#5c5c5c]'}`}>
+                  {normalizedSearch ? 'No matching rooms.' : (isHostMode ? 'No live host rooms yet.' : 'No RSVP shows yet.')}
+                </div>
               )}
             </div>
           </section>
@@ -1321,6 +1494,126 @@ export const CatalogPage = () => {
               >
                 Logout
               </motion.button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showCreateRoomSheet && (
+            <motion.div
+              className="fixed inset-0 z-50 bg-black/70 flex items-end"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => !creatingRoom && setShowCreateRoomSheet(false)}
+            >
+              <motion.div
+                className={`w-full max-w-md mx-auto rounded-t-2xl border p-5 ${isDarkMode ? 'border-zinc-800 bg-[#111214] text-white' : 'border-[#c8c1b5] bg-[#f6f1e8] text-[#111]'}`}
+                initial={{ y: 44, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 44, opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.75 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-ppmori-semibold">Create Host Room</h3>
+                  <button
+                    type="button"
+                    disabled={creatingRoom}
+                    onClick={() => setShowCreateRoomSheet(false)}
+                    className={`h-8 w-8 rounded-full border flex items-center justify-center ${isDarkMode ? 'text-zinc-300 border-zinc-700 bg-black/30' : 'text-[#3d3d3d] border-[#c8c1b5] bg-white/70'}`}
+                    aria-label="Close create room sheet"
+                    title="Close"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className={`text-xs mb-1 block ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Room Name</span>
+                    <input
+                      value={createRoomForm.roomName}
+                      onChange={(e) => setCreateRoomForm((prev) => ({ ...prev, roomName: e.target.value }))}
+                      placeholder="e.g. DIBS_FRIDAY_DROP"
+                      className={`w-full h-10 rounded-lg px-3 text-sm outline-none border ${isDarkMode ? 'bg-black/40 border-zinc-700 text-white placeholder:text-zinc-500' : 'bg-white border-[#c8c1b5] text-[#111] placeholder:text-[#7a7a7a]'}`}
+                    />
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className={`text-xs mb-1 block ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>Start Time</span>
+                      <input
+                        type="datetime-local"
+                        disabled={createRoomForm.goLiveNow}
+                        value={createRoomForm.startAt}
+                        onChange={(e) => setCreateRoomForm((prev) => ({ ...prev, startAt: e.target.value }))}
+                        className={`w-full h-10 rounded-lg px-3 text-sm outline-none border ${isDarkMode ? 'bg-black/40 border-zinc-700 text-white' : 'bg-white border-[#c8c1b5] text-[#111]'} disabled:opacity-50`}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={`text-xs mb-1 block ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>End Time</span>
+                      <input
+                        type="datetime-local"
+                        value={createRoomForm.endAt}
+                        onChange={(e) => setCreateRoomForm((prev) => ({ ...prev, endAt: e.target.value }))}
+                        className={`w-full h-10 rounded-lg px-3 text-sm outline-none border ${isDarkMode ? 'bg-black/40 border-zinc-700 text-white' : 'bg-white border-[#c8c1b5] text-[#111]'}`}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className={`text-xs mb-1 block ${isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}`}>RSVP Capacity</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={createRoomForm.capacity}
+                        onChange={(e) => setCreateRoomForm((prev) => ({ ...prev, capacity: e.target.value }))}
+                        className={`w-full h-10 rounded-lg px-3 text-sm outline-none border ${isDarkMode ? 'bg-black/40 border-zinc-700 text-white' : 'bg-white border-[#c8c1b5] text-[#111]'}`}
+                      />
+                    </label>
+                    <label className="flex items-end">
+                      <button
+                        type="button"
+                        onClick={() => setCreateRoomForm((prev) => ({ ...prev, goLiveNow: !prev.goLiveNow }))}
+                        className={`w-full h-10 rounded-lg border text-sm font-ppmori-semibold ${createRoomForm.goLiveNow ? 'bg-orange-500 text-black border-orange-400' : (isDarkMode ? 'bg-zinc-900 text-white border-zinc-700' : 'bg-white text-[#111] border-[#c8c1b5]')}`}
+                      >
+                        {createRoomForm.goLiveNow ? 'Live Now: ON' : 'Live Now: OFF'}
+                      </button>
+                    </label>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={createRoomForm.rsvpOpen}
+                      onChange={(e) => setCreateRoomForm((prev) => ({ ...prev, rsvpOpen: e.target.checked }))}
+                    />
+                    <span className={isDarkMode ? 'text-zinc-300' : 'text-[#3d3d3d]'}>Allow RSVP registration</span>
+                  </label>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    disabled={creatingRoom}
+                    onClick={() => setShowCreateRoomSheet(false)}
+                    className={`h-11 rounded-lg ${isDarkMode ? 'bg-zinc-800 text-white' : 'bg-[#ede6da] text-[#111] border border-[#c8c1b5]'}`}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateHostRoom}
+                    disabled={creatingRoom}
+                    className="h-11 rounded-lg bg-orange-500 text-black font-ppmori-semibold disabled:opacity-60"
+                  >
+                    {creatingRoom ? 'Creating...' : 'Create Room'}
+                  </button>
+                </div>
               </motion.div>
             </motion.div>
           )}
