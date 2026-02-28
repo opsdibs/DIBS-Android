@@ -524,7 +524,7 @@ export const CatalogPage = () => {
     return String(room?.ownerUid || '') === String(profile.firebaseUid);
   };
 
-  const handleJoinRoom = async (roomId) => {
+  const handleJoinRoom = async (roomId, options = {}) => {
     if (!profile) return;
 
     if (!profile.displayName) {
@@ -539,6 +539,7 @@ export const CatalogPage = () => {
     setJoiningRoom(roomId);
 
     try {
+      const joinAsSpectator = !isHostMode && options?.joinAsSpectator === true;
       const roomMeta = listSourceRooms.find((entry) => entry.id === roomId) || rooms.find((entry) => entry.id === roomId);
       if (isHostMode && !isRoomOwnedByHost(roomMeta)) {
         setError('Hosts can only enter rooms they created.');
@@ -548,7 +549,8 @@ export const CatalogPage = () => {
       }
 
       const finalName = profile.displayName;
-      const role = isHostMode ? 'host' : (profile.role || 'audience');
+      const role = isHostMode ? 'host' : (joinAsSpectator ? 'spectator' : (profile.role || 'audience'));
+      const persistedAccountRole = isHostMode ? 'host' : (profile.role || 'audience');
       const userId = profile.userId || profile.firebaseUid || `USER-${profile.phone}`;
 
       const userRef = push(ref(db, `audience_data/${roomId}`));
@@ -590,7 +592,7 @@ export const CatalogPage = () => {
         await update(ref(db, `users/${profile.firebaseUid}`), {
           displayName: finalName,
           username: finalName,
-          role,
+          role: persistedAccountRole,
           phone: profile.phone,
           phoneE164: profile.phoneE164 || toE164India(profile.phone),
           email: profile.email,
@@ -603,7 +605,8 @@ export const CatalogPage = () => {
         localStorage.setItem(SESSION_KEY, JSON.stringify(nextProfile));
       }
 
-      navigate(`/room/${roomId}?dbKey=${userRef.key}&uid=${userId}&role=${role}`);
+      const spectatorParam = joinAsSpectator ? '&spectate=1' : '';
+      navigate(`/room/${roomId}?dbKey=${userRef.key}&uid=${userId}&role=${role}${spectatorParam}`);
     } catch (err) {
       console.error(err);
       setError('Failed to enter room. Please retry.');
@@ -878,6 +881,11 @@ export const CatalogPage = () => {
     }
 
     setSelectedLockedRoom(null);
+    if (!isRegistered) {
+      setNotice('You did not RSVP for this room. Spectate-only mode enabled.');
+      handleJoinRoom(room.id, { joinAsSpectator: true });
+      return;
+    }
     handleJoinRoom(room.id);
   };
 
@@ -1070,6 +1078,7 @@ export const CatalogPage = () => {
       return startTimeMs ? `Locked - ${formatCountdown(startTimeMs - nowMs)}` : 'Locked';
     }
 
+    if (!isRegistered) return 'Spectate Only';
     if (rsvpStatus === RSVP_STATUS.WAITLISTED) return 'Waitlisted';
     if (room.isLive) return 'Tap to Enter';
     return 'Tap to Enter';

@@ -14,6 +14,7 @@ export const LiveRoom = ({ roomId }) => {
   const [searchParams] = useSearchParams();
   // --- SECURITY: VERIFY ROLE FROM DB ---
   const dbKey = searchParams.get('dbKey');
+  const spectateMode = searchParams.get('spectate') === '1';
   const [verifiedRole, setVerifiedRole] = useState(null);
   const [isVerifying, setIsVerifying] = useState(true);
   const [currentUsername, setCurrentUsername] = useState(null); // <--- NEW
@@ -481,6 +482,16 @@ const switchCamera = async () => {
                 </button>
             </div>
         </div>
+
+        {isSpectator && (
+          <div className="mt-3 pointer-events-none">
+            <div className="mx-auto w-full rounded-md border border-amber-500/40 bg-amber-950/25 px-3 py-2 text-[11px] text-amber-100">
+              {spectateMode
+                ? 'You did not RSVP for this show. You can watch in spectate-only mode.'
+                : 'Spectate-only mode is active for this session.'}
+            </div>
+          </div>
+        )}
 
         {isHost && videoReady && (
             <button

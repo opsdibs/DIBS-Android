@@ -5,7 +5,7 @@ import { AlertCircle, ArrowRight, ChevronLeft, Mail } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { ref, push, set, get, update } from 'firebase/database';
-import { onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
+import { onAuthStateChanged, RecaptchaVerifier, signInAnonymously, signInWithPhoneNumber } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
 import { logEvent } from '../lib/analytics';
 import { NAME_LIST } from '../lib/username_list';
@@ -156,6 +156,12 @@ function isOtpRateLimited(code = '', message = '') {
     text.includes('blocked all requests') ||
     text.includes('unusual activity')
   );
+}
+
+function isPermissionDenied(error) {
+  const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+  return code.includes('permission') || message.includes('permission_denied');
 }
 
 const SESSION_KEY = 'dibs_auth_context';
@@ -531,13 +537,24 @@ export const LoginPage = () => {
     }
 
     try {
-      const [blockSnap, testSnapshot, guestSnap] = await Promise.all([
-        get(ref(db, `blocked_users/${cleanPhone}`)),
-        get(ref(db, `test_allowed_guests/${cleanPhone}`)),
-        get(ref(db, `allowed_guests/${cleanPhone}`))
+      const readPath = async (path) => {
+        try {
+          return { snapshot: await get(ref(db, path)), denied: false };
+        } catch (readErr) {
+          if (isPermissionDenied(readErr)) {
+            return { snapshot: null, denied: true };
+          }
+          throw readErr;
+        }
+      };
+
+      const [blockRead, testRead, guestRead] = await Promise.all([
+        readPath(`blocked_users/${cleanPhone}`),
+        readPath(`test_allowed_guests/${cleanPhone}`),
+        readPath(`allowed_guests/${cleanPhone}`)
       ]);
 
-      if (blockSnap.exists()) {
+      if (blockRead.snapshot?.exists()) {
         logEvent(roomId, 'LOGIN_BLOCKED', { phone: cleanPhone });
         setError('ACCESS DENIED. You are blocked.');
         setLoading(false);
@@ -552,16 +569,23 @@ export const LoginPage = () => {
       let profileRole = 'audience';
       let hostAccess = { ...DEFAULT_HOST_ACCESS };
 
-      if (testSnapshot.exists()) {
-        const testRecord = testSnapshot.val() || {};
+      if (testRead.snapshot?.exists()) {
+        const testRecord = testRead.snapshot.val() || {};
         if (testRecord.email) email = String(testRecord.email).toLowerCase();
-      } else if (guestSnap.exists()) {
-        const guestRecord = guestSnap.val() || {};
+      } else if (guestRead.snapshot?.exists()) {
+        const guestRecord = guestRead.snapshot.val() || {};
         if (guestRecord.email) email = String(guestRecord.email).toLowerCase();
       } else {
-        role = 'spectator';
-        unregistered = true;
-        if (!firebaseUid) userId = `SPEC-${cleanPhone}`;
+        // If read is denied by strict rules, allow authenticated OTP users through as audience.
+        const allowlistReadDenied = testRead.denied || guestRead.denied;
+        if (allowlistReadDenied && firebaseUid) {
+          role = 'audience';
+          unregistered = false;
+        } else {
+          role = 'spectator';
+          unregistered = true;
+          if (!firebaseUid) userId = `SPEC-${cleanPhone}`;
+        }
       }
 
       if (firebaseUid) {
@@ -678,7 +702,22 @@ export const LoginPage = () => {
       }
 
       logEvent(roomId, 'OTP_BYPASS_USED', { phone: cleanPhone });
-      await handlePostOtpAuth({ uid: null, phoneNumber: toE164India(cleanPhone) });
+      let bypassUser = auth.currentUser || null;
+      const currentPhone = sanitizePhone(bypassUser?.phoneNumber || '');
+
+      // Entry Pass fallback still needs an authenticated session for strict RTDB rules.
+      if (!bypassUser || currentPhone !== cleanPhone) {
+        try {
+          const anonCredential = await signInAnonymously(auth);
+          bypassUser = anonCredential.user;
+        } catch (anonErr) {
+          console.warn('Anonymous fallback sign-in unavailable:', anonErr);
+        }
+      }
+
+      await handlePostOtpAuth(
+        bypassUser || { uid: null, phoneNumber: toE164India(cleanPhone) }
+      );
       return;
     }
 
